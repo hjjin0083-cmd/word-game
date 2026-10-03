@@ -37,7 +37,7 @@ function startTurnTimer(roomId) {
     const currentPlayer = room.players[room.currentTurn];
     // 💡 [보너스 제한 시간 적용] 이전 턴에 4글자 이상 맞췄다면 보너스 시간 부여
     const bonusSec = room.bonusTime[currentPlayer.id] || 0;
-    room.timeLeft = 10 + bonusSec;
+    room.timeLeft = 20 + bonusSec;
     delete room.bonusTime[currentPlayer.id]; // 보너스 사용 후 차감
 
     io.to(roomId).emit('timer_update', { 
@@ -92,7 +92,7 @@ io.on('connection', (socket) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 players: [], currentTurn: 0, lastWord: '', usedWords: new Set(),
-                isStarted: false, timer: null, timeLeft: 20,
+                isStarted: false, timer: null, timeLeft: 10,
                 combo: 0, lastWordTime: 0,
                 bonusTime: {}, items: {} // 플레이어별 아이템 및 보너스 시간
             };
