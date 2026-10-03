@@ -92,7 +92,7 @@ io.on('connection', (socket) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 players: [], currentTurn: 0, lastWord: '', usedWords: new Set(),
-                isStarted: false, timer: null, timeLeft: 10,
+                isStarted: false, timer: null, timeLeft: 20,
                 combo: 0, lastWordTime: 0,
                 bonusTime: {}, items: {} // 플레이어별 아이템 및 보너스 시간
             };
