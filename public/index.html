@@ -145,10 +145,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
-// 🎵 배경음악 설정 (원하는 MP3 링크로 교체 가능)
-const bgm = new Audio('https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3');
-bgm.loop = true;   // 무한 반복
-bgm.volume = 0.2;  // 소리가 너무 크지 않게 볼륨 20%로 설정
         const socket = io();
         let mySocketId = '';
         let currentRoomId = '';
@@ -264,23 +260,7 @@ bgm.volume = 0.2;  // 소리가 너무 크지 않게 볼륨 20%로 설정
 
         socket.on('connect', () => { mySocketId = socket.id; });
 
-        function joinRoom(function joinRoom() {
-    const roomId = document.getElementById('roomId').value.trim();
-    const nickname = document.getElementById('nickname').value.trim();
-    
-    // 1. 유효성 검사 코드 (기존)
-    if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
-
-    // 📍 [여기 추가!] if문 바로 아래에 한 줄 삽입
-    bgm.play().catch(error => console.log('재생 에러:', error));
-
-    // 2. 서버 접속 및 화면 전환 코드 (기존)
-    currentRoomId = roomId;
-    socket.emit('join_room', { roomId, nickname });
-    
-    document.getElementById('lobby').classList.add('hidden');
-    document.getElementById('game-area').classList.remove('hidden');
-}) {
+        function joinRoom() {
             const roomId = document.getElementById('roomId').value.trim();
             const nickname = document.getElementById('nickname').value.trim();
             if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
