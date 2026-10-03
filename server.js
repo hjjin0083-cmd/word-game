@@ -10,24 +10,23 @@ app.use(express.static('public'));
 
 const rooms = {};
 
-// 💡 [수정] 업그레이드된 국어사전 검색 함수 (명사만 허용)
+// 💡 [수정] 조건문 오류를 해결한 국어사전 검색 함수
 async function checkWordInDictionary(word) {
-    // 반드시 본인이 발급받은 실제 API 키로 변경해야 작동합니다!
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
     
-    if (apiKey === 'A7357991EA6C47925AA3642AB714EECA') {
+    // API 키가 비어있거나 기본 문구일 때만 임시 통과되도록 수정
+    if (!apiKey || apiKey === '여기에_발급받은_API_키를_넣으세요') {
         console.log(`[경고] API 키가 입력되지 않아 '${word}' 단어가 무조건 통과됩니다.`);
         return true; 
     }
 
-    // 💡 주소 맨 끝에 &pos=1 을 추가하여 '명사'만 검색하도록 강제 제한합니다.
+    // 국립국어원 한국어기초사전 API 호출 (명사만 검색)
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(word)}&advanced=y&method=exact&pos=1`;
 
     try {
         const response = await fetch(url);
         const xmlText = await response.text();
 
-        // 검색 결과 개수 확인
         const match = xmlText.match(/<total>(\d+)<\/total>/);
         if (match && parseInt(match[1]) > 0) {
             return true; // 명사이고 사전에 존재함
@@ -35,7 +34,7 @@ async function checkWordInDictionary(word) {
         return false; // 사전에 없거나 명사가 아님
     } catch (error) {
         console.error('사전 통신 에러:', error);
-        return false; // 💡 에러가 발생했을 때도 억지로 통과되지 않게 막음
+        return false; 
     }
 }
 
