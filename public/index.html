@@ -301,10 +301,13 @@ function joinRoom() {
             socket.emit('start_game', { roomId: currentRoomId });
         }
 
-     // 방 플레이어 정보 수신
-socket.on('room_update', ({ players }) => {
+   // 방 플레이어 정보 수신
+socket.on('room_update', ({ players, isStarted }) => {
     document.getElementById('player-count').innerText = players.length;
     renderPlayers(players);
+
+    // 💡 [핵심 수정] 게임이 이미 진행 중이라면 대기실 UI(시작 버튼, 대기 메시지) 덮어쓰기를 중단합니다!
+    if (isStarted) return;
 
     const startBtn = document.getElementById('start-btn');
     const isHost = players.length > 0 && players[0].id === socket.id;
@@ -321,7 +324,7 @@ socket.on('room_update', ({ players }) => {
         }
     }
 });
-
+ 
 // 게임 시작 수신 (핵심: 모든 플레이어의 단어 입력 판 열기)
 socket.on('game_start', ({ players, currentTurnSocketId: turnId, currentTurnNickname }) => {
     document.getElementById('start-btn').classList.add('hidden');

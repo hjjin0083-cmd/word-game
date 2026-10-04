@@ -162,7 +162,9 @@ io.on('connection', (socket) => {
 
         room.players.push({ id: socket.id, nickname, isAlive: true });
         room.items[socket.id] = [];
-        io.to(roomId).emit('room_update', { players: room.players });
+        
+        // 💡 1번 수정 반영: 게임 시작 여부 전달
+        io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
     });
 
     // 🤖 [추가] 컴퓨터 대결 시작 소켓 이벤트
@@ -187,7 +189,8 @@ io.on('connection', (socket) => {
         };
 
         const room = rooms[roomId];
-        io.to(roomId).emit('room_update', { players: room.players });
+        // 💡 2번 수정 반영: 게임 시작 여부 전달
+        io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
         io.to(roomId).emit('game_start', {
             players: room.players,
             currentTurnSocketId: room.players[0].id,
@@ -214,7 +217,8 @@ io.on('connection', (socket) => {
 
     socket.on('get_room_info', ({ roomId }) => {
         const room = rooms[roomId];
-        if (room) socket.emit('room_update', { players: room.players });
+        // 💡 3번 수정 반영: 게임 시작 여부 전달
+        if (room) socket.emit('room_update', { players: room.players, isStarted: room.isStarted });
     });
 
     socket.on('submit_word', async ({ roomId, word }) => {
@@ -329,7 +333,10 @@ io.on('connection', (socket) => {
                     delete rooms[roomId];
                 } else {
                     room.currentTurn = room.currentTurn % room.players.length;
-                    io.to(roomId).emit('room_update', { players: room.players });
+                    
+                    // 💡 4번 수정 반영: 게임 시작 여부 전달
+                    io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
+                    
                     if (room.isStarted && room.players.length === 1) {
                         if (room.timer) clearInterval(room.timer);
                         io.to(roomId).emit('game_over', { winner: room.players[0].nickname + ' (상대방 퇴장)' });
@@ -340,6 +347,9 @@ io.on('connection', (socket) => {
                             lastWord: room.lastWord,
                             message: '누군가 퇴장하여 순서가 조정되었습니다.'
                         });
+                        
+                        // 💡 5번 수정 반영: 누군가 퇴장했을 때 남은 플레이어를 위해 타이머를 다시 시작
+                        startTurnTimer(roomId); 
                     }
                 }
                 break;
