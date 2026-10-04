@@ -10,12 +10,11 @@ app.use(express.static('public'));
 
 const rooms = {};
 
-// 💡 대기 중인 방 목록을 추려내는 함수 추가
+// 대기 중인 방 목록을 추려내는 함수
 function getWaitingRooms() {
     const roomList = [];
     for (const [roomId, room] of Object.entries(rooms)) {
         const isBotRoom = room.players.some(p => p.isBot);
-        // 게임이 시작되지 않았고, 봇 방이 아니며, 인원이 4명 미만 1명 이상인 방만 표시
         if (!room.isStarted && !isBotRoom && room.players.length < 4 && room.players.length > 0) {
             roomList.push({
                 roomId: roomId,
@@ -26,7 +25,7 @@ function getWaitingRooms() {
     return roomList;
 }
 
-// 국어사전 검색 및 단어 뜻(definition) 가져오는 함수
+// 국어사전 검색 및 단어 뜻 가져오는 함수
 async function checkWordInDictionary(word) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
     if (!apiKey || apiKey === '여기에_발급받은_API_키를_넣으세요') {
@@ -203,7 +202,6 @@ function nextTurn(roomId, systemMessage = '') {
         room.combo = 0;
         room.players = room.players.filter(p => !p.isBot);
         
-        // 💡 게임이 종료되었으므로 방 목록 갱신
         io.emit('room_list', getWaitingRooms());
         return;
     }
@@ -262,7 +260,6 @@ function handleBotTurn(roomId) {
 }
 
 io.on('connection', (socket) => {
-    // 💡 클라이언트가 처음 접속하면 현재 방 목록을 보내줌
     socket.emit('room_list', getWaitingRooms());
 
     socket.on('join_room', ({ roomId, nickname }) => {
@@ -285,8 +282,6 @@ io.on('connection', (socket) => {
         room.items[socket.id] = [];
         
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
-        
-        // 💡 방 인원 변화가 생겼으므로 전체 유저에게 방 목록 갱신
         io.emit('room_list', getWaitingRooms());
     });
 
@@ -321,7 +316,6 @@ io.on('connection', (socket) => {
         });
 
         startTurnTimer(roomId);
-        // 💡 게임 방 상태가 변했으므로 갱신
         io.emit('room_list', getWaitingRooms());
     });
 
@@ -339,8 +333,6 @@ io.on('connection', (socket) => {
             currentTurnNickname: room.players[0].nickname
         });
         startTurnTimer(roomId);
-        
-        // 💡 게임이 시작되었으므로 대기 목록에서 제외되도록 갱신
         io.emit('room_list', getWaitingRooms());
     });
 
@@ -462,9 +454,14 @@ io.on('connection', (socket) => {
         socket.emit('update_my_items', { items: userItems });
     });
 
+    // 💡 클라이언트에서 explicit 방 나가기 요청
+    socket.on('leave_room', () => {
+        removePlayerFromAllRooms(socket);
+        io.emit('room_list', getWaitingRooms());
+    });
+
     socket.on('disconnect', () => {
         removePlayerFromAllRooms(socket);
-        // 💡 유저 퇴장 시 방 목록 갱신
         io.emit('room_list', getWaitingRooms());
     });
 });

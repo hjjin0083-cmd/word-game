@@ -83,6 +83,29 @@
             70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
             100% { transform: translate(-50%, -100%) scale(0.8); opacity: 0; }
         }
+
+        /* 💡 결과 선택 팝업 스타일 */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+        .modal-card {
+            background: #ffffff; border-radius: 20px; padding: 24px;
+            width: 88%; max-width: 340px; text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+            animation: modalUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes modalUp {
+            from { transform: translateY(20px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        .modal-card h3 { font-size: 1.3rem; margin-bottom: 8px; color: #0f172a; }
+        .modal-card p { font-size: 1rem; color: #475569; margin-bottom: 20px; font-weight: 600; }
+        .modal-btns { display: flex; gap: 10px; }
+        .modal-btns button { flex: 1; font-size: 0.95rem; padding: 12px; }
     </style>
 </head>
 <body>
@@ -95,7 +118,6 @@
         <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 기록 단어: 없음</div>
 
         <div id="lobby">
-            <!-- 💡 공개 방 리스트 표시 영역 추가 -->
             <div style="background: rgba(248, 250, 252, 0.9); border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #e2e8f0;">
                 <h3 style="font-size: 0.9rem; color: #475569; margin-bottom: 8px;">🟢 현재 대기 중인 방</h3>
                 <div id="public-rooms" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;">
@@ -154,6 +176,18 @@
         </div>
     </div>
 
+    <!-- 💡 게임 종료 결과 / 선택 팝업 -->
+    <div id="game-over-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h3>🏆 게임 종료!</h3>
+            <p id="game-over-winner">최종 승자: 알 수 없음</p>
+            <div class="modal-btns">
+                <button onclick="rematchGame()" style="background-color: #10b981;">🔄 재대결하기</button>
+                <button onclick="leaveRoom()" style="background-color: #ef4444;">🚪 방 나가기</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -166,6 +200,7 @@
         let currentRoomId = '';
         let currentTurnSocketId = '';
         let myItems = [];
+        let isBotGame = false; // 💡 현재 게임이 봇전인지 구분하는 상태 변수
 
         const sndSuccess = new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg');
         const sndMyTurn = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
@@ -273,7 +308,6 @@
 
         socket.on('connect', () => { mySocketId = socket.id; });
 
-        // 💡 서버에서 방 목록을 받아 로비에 버튼 형태로 렌더링
         socket.on('room_list', (rooms) => {
             const container = document.getElementById('public-rooms');
             if (!container) return;
@@ -291,13 +325,13 @@
             }).join('');
         });
 
-        // 💡 방 버튼을 클릭했을 때 입력창에 방 이름을 채워주는 함수
         function quickJoin(roomId) {
             document.getElementById('roomId').value = roomId;
             document.getElementById('nickname').focus(); 
         }
 
         function joinRoom() {
+            isBotGame = false; // 일반 플레이어 대결 플래그 설정
             const roomId = document.getElementById('roomId').value.trim();
             const nickname = document.getElementById('nickname').value.trim();
             if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
@@ -314,6 +348,7 @@
         }
 
         function startBotGame() {
+            isBotGame = true; // 🤖 컴퓨터 대결 플래그 설정
             const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
             const nickname = document.getElementById('nickname').value.trim();
             if (!nickname) return alert('닉네임을 입력해주세요.');
@@ -360,7 +395,7 @@
                 }
             }
         });
- 
+
         socket.on('game_start', ({ players, currentTurnSocketId: turnId, currentTurnNickname }) => {
             document.getElementById('start-btn').classList.add('hidden');
             document.getElementById('game-play').classList.remove('hidden');
@@ -494,6 +529,7 @@
             }, 2000);
         });
 
+        // 💡 게임 종료 시 팝업창을 띄우는 처리
         socket.on('game_over', ({ winner }) => {
             sndGameOver.play();
             showReaction('🏆');
@@ -503,10 +539,40 @@
             saveGameResult(isWin);
 
             setTimeout(() => {
-                alert(`게임 종료! 최종 승자: ${winner} 🎉`);
-                location.reload();
+                document.getElementById('game-over-winner').innerText = `최종 승자: ${winner} 🎉`;
+                document.getElementById('game-over-modal').classList.remove('hidden');
             }, 1200);
         });
+
+        // 💡 [재대결하기] 클릭 시 실행
+        function rematchGame() {
+            document.getElementById('game-over-modal').classList.add('hidden');
+            
+            // 플레이 판 초기화
+            document.getElementById('word-history').innerHTML = '';
+            document.getElementById('current-word').innerText = '준비!';
+            document.getElementById('word-definition').innerHTML = '📖 단어의 뜻이 여기에 표시됩니다.';
+            myItems = [];
+            renderItemSlots();
+
+            if (isBotGame) {
+                // 🤖 컴퓨터 대결인 경우: 바로 봇전 새 게임 시작
+                const nickname = document.getElementById('nickname').value.trim();
+                socket.emit('start_bot_game', { roomId: currentRoomId, nickname });
+            } else {
+                // 👥 일반 멀티플레이 대결인 경우: 방 대기실로 이동
+                document.getElementById('game-play').classList.add('hidden');
+                document.getElementById('status-msg').innerText = '대기실로 돌아왔습니다. 준비 후 시작해주세요!';
+                socket.emit('get_room_info', { roomId: currentRoomId });
+            }
+        }
+
+        // 💡 [방 나가기] 클릭 시 실행
+        function leaveRoom() {
+            document.getElementById('game-over-modal').classList.add('hidden');
+            socket.emit('leave_room');
+            location.reload(); 
+        }
 
         function updateTurnUI(turnNickname) {
             const isMyTurn = currentTurnSocketId === socket.id;
