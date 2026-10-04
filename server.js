@@ -10,7 +10,23 @@ app.use(express.static('public'));
 
 const rooms = {};
 
-// 💡 [수정] 국어사전 검색 및 단어 뜻(definition)까지 함께 가져오는 함수
+// 💡 대기 중인 방 목록을 추려내는 함수 추가
+function getWaitingRooms() {
+    const roomList = [];
+    for (const [roomId, room] of Object.entries(rooms)) {
+        const isBotRoom = room.players.some(p => p.isBot);
+        // 게임이 시작되지 않았고, 봇 방이 아니며, 인원이 4명 미만 1명 이상인 방만 표시
+        if (!room.isStarted && !isBotRoom && room.players.length < 4 && room.players.length > 0) {
+            roomList.push({
+                roomId: roomId,
+                playerCount: room.players.length
+            });
+        }
+    }
+    return roomList;
+}
+
+// 국어사전 검색 및 단어 뜻(definition) 가져오는 함수
 async function checkWordInDictionary(word) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
     if (!apiKey || apiKey === '여기에_발급받은_API_키를_넣으세요') {
@@ -27,7 +43,7 @@ async function checkWordInDictionary(word) {
         if (exists) {
             const defMatch = xmlText.match(/<definition>(.*?)<\/definition>/);
             if (defMatch) {
-                definition = defMatch[1].replace(/<[:/a-z]+>/g, '').trim(); // HTML 태그 제거
+                definition = defMatch[1].replace(/<[:/a-z]+>/g, '').trim(); 
             }
         }
         return { exists, definition };
@@ -37,7 +53,7 @@ async function checkWordInDictionary(word) {
     }
 }
 
-// 🤖 컴퓨터 전용 단어 검색 함수
+// 컴퓨터 전용 단어 검색 함수
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
     
@@ -186,6 +202,9 @@ function nextTurn(roomId, systemMessage = '') {
         room.lastWord = '';
         room.combo = 0;
         room.players = room.players.filter(p => !p.isBot);
+        
+        // 💡 게임이 종료되었으므로 방 목록 갱신
+        io.emit('room_list', getWaitingRooms());
         return;
     }
 
@@ -243,6 +262,9 @@ function handleBotTurn(roomId) {
 }
 
 io.on('connection', (socket) => {
+    // 💡 클라이언트가 처음 접속하면 현재 방 목록을 보내줌
+    socket.emit('room_list', getWaitingRooms());
+
     socket.on('join_room', ({ roomId, nickname }) => {
         removePlayerFromAllRooms(socket);
         
@@ -263,6 +285,9 @@ io.on('connection', (socket) => {
         room.items[socket.id] = [];
         
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
+        
+        // 💡 방 인원 변화가 생겼으므로 전체 유저에게 방 목록 갱신
+        io.emit('room_list', getWaitingRooms());
     });
 
     socket.on('start_bot_game', ({ roomId, nickname }) => {
@@ -296,6 +321,8 @@ io.on('connection', (socket) => {
         });
 
         startTurnTimer(roomId);
+        // 💡 게임 방 상태가 변했으므로 갱신
+        io.emit('room_list', getWaitingRooms());
     });
 
     socket.on('start_game', ({ roomId }) => {
@@ -312,6 +339,9 @@ io.on('connection', (socket) => {
             currentTurnNickname: room.players[0].nickname
         });
         startTurnTimer(roomId);
+        
+        // 💡 게임이 시작되었으므로 대기 목록에서 제외되도록 갱신
+        io.emit('room_list', getWaitingRooms());
     });
 
     socket.on('get_room_info', ({ roomId }) => {
@@ -350,7 +380,6 @@ io.on('connection', (socket) => {
 
         if (room.usedWords.has(trimmedWord)) return socket.emit('error_msg', '이미 사용된 단어입니다.');
 
-        // 💡 뜻풀이 포함 검증 결과 받기
         const checkResult = await checkWordInDictionary(trimmedWord);
         if (!checkResult.exists) {
             currentPlayer.isAlive = false;
@@ -381,7 +410,6 @@ io.on('connection', (socket) => {
         room.usedWords.add(trimmedWord);
         room.lastWord = trimmedWord;
 
-        // 💡 클라이언트로 뜻(definition) 전달 추가
         io.to(roomId).emit('word_accepted', { 
             word: trimmedWord, 
             nickname: currentPlayer.nickname,
@@ -436,6 +464,8 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         removePlayerFromAllRooms(socket);
+        // 💡 유저 퇴장 시 방 목록 갱신
+        io.emit('room_list', getWaitingRooms());
     });
 });
 
