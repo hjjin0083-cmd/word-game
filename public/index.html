@@ -98,6 +98,24 @@
         <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 긴 단어: 없음</div>
 
         <div id="lobby">
+<!-- 변경 전 -->
+<div id="lobby">
+    <div class="form-group">
+        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
+        <input type="text" id="nickname" placeholder="닉네임 입력">
+        <button onclick="joinRoom()">입장하기</button>
+    </div>
+</div>
+
+<!-- 변경 후 -->
+<div id="lobby">
+    <div class="form-group">
+        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
+        <input type="text" id="nickname" placeholder="닉네임 입력">
+        <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
+        <button onclick="startBotGame()" style="background-color: #10b981;">🤖 컴퓨터와 대결하기</button>
+    </div>
+</div>
             <div class="form-group">
                 <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
                 <input type="text" id="nickname" placeholder="닉네임 입력">
@@ -145,6 +163,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
+// 💡 [추가] 컴퓨터 대결 시작 함수
+function startBotGame() {
+    const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
+    const nickname = document.getElementById('nickname').value.trim();
+    if (!nickname) return alert('닉네임을 입력해주세요.');
+
+    if (typeof bgm !== 'undefined') {
+        bgm.play().catch(e => console.log(e));
+    }
+
+    currentRoomId = roomId;
+    socket.emit('start_bot_game', { roomId, nickname });
+
+    document.getElementById('lobby').classList.add('hidden');
+    document.getElementById('game-area').classList.remove('hidden');
+}
         const socket = io();
         let mySocketId = '';
         let currentRoomId = '';
