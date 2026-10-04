@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>실시간 끝말잇기 - 3D & 기믹 모드</title>
+    <title>실시간 끝말잇기 - 피버 & 기믹 익스트림</title>
+    <!-- 폭죽 연출 라이브러리 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
         body { background-color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 12px; overflow: hidden; position: relative; }
@@ -12,7 +14,7 @@
 
         .container { 
             background: rgba(255, 255, 255, 0.93); 
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(10px);
             border-radius: 20px; 
             padding: 20px; 
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12); 
@@ -20,16 +22,58 @@
             max-width: 440px; 
             position: relative; 
             z-index: 10; 
+            transition: border 0.3s ease, box-shadow 0.3s ease;
         }
 
-        h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 8px; font-weight: 700; }
+        /* 🔥 피버 모드 스타일 */
+        .container.fever-mode {
+            border: 3px solid #ff007f;
+            box-shadow: 0 0 25px rgba(255, 0, 127, 0.6), inset 0 0 15px rgba(255, 0, 127, 0.3);
+            animation: feverGlow 1s infinite alternate;
+        }
+        @keyframes feverGlow {
+            from { border-color: #ff007f; box-shadow: 0 0 20px #ff007f; }
+            to { border-color: #7928ca; box-shadow: 0 0 30px #7928ca; }
+        }
+
+        /* 💥 화면 흔들림 효과 */
+        .shake-effect {
+            animation: shakeHard 0.25s ease-in-out;
+        }
+        @keyframes shakeHard {
+            0% { transform: translate(0, 0); }
+            25% { transform: translate(-6px, 4px); }
+            50% { transform: translate(6px, -4px); }
+            75% { transform: translate(-4px, -2px); }
+            100% { transform: translate(0, 0); }
+        }
+
+        h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 8px; font-weight: 800; }
         
-        .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 14px; text-align: center; font-weight: 600; }
+        .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 12px; text-align: center; font-weight: 600; }
+
+        /* 🎯 돌발 미션 배너 */
+        .mission-banner {
+            background: linear-gradient(90deg, #fff7ed, #ffedd5);
+            border: 1px solid #fed7aa;
+            border-radius: 10px;
+            padding: 6px 12px;
+            font-size: 0.82rem;
+            color: #c2410c;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
 
         .form-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
         input[type="text"] { width: 100%; padding: 14px 16px; font-size: 16px; border: 2px solid #e2e8f0; border-radius: 12px; outline: none; background: #ffffff; }
         input[type="text"]:focus { border-color: #6366f1; }
-        button { width: 100%; padding: 14px; font-size: 16px; font-weight: 700; color: #ffffff; background-color: #6366f1; border: none; border-radius: 12px; cursor: pointer; }
+        button { width: 100%; padding: 14px; font-size: 16px; font-weight: 700; color: #ffffff; background-color: #6366f1; border: none; border-radius: 12px; cursor: pointer; transition: transform 0.1s; }
+        button:active { transform: scale(0.98); }
         button:disabled { background-color: #cbd5e1; cursor: not-allowed; }
 
         .player-section { background: rgba(248, 250, 252, 0.8); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
@@ -42,14 +86,13 @@
             box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
             animation: pulse 1.5s infinite;
         }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.04); } 100% { transform: scale(1); } }
 
         .status-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 600; }
         .combo-badge { background: #ffed4a; color: #854d0e; padding: 4px 10px; border-radius: 20px; font-weight: 800; font-size: 0.85rem; display: none; }
         .timer-badge { background-color: #fee2e2; color: #ef4444; padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; }
         .timer-badge.bonus { background-color: #dcfce7; color: #15803d; }
         .timer-badge.danger { animation: shake 0.5s infinite; background-color: #ef4444; color: white; }
-        @keyframes shake { 0% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } 100% { transform: translateX(0); } }
 
         .word-card { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #ffffff; border-radius: 16px; padding: 16px; text-align: center; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
         .word-card .label { font-size: 0.8rem; opacity: 0.8; margin-bottom: 4px; }
@@ -59,7 +102,7 @@
         .item-btn { flex: 1; padding: 8px; font-size: 0.8rem; background: #e0e7ff; color: #3730a3; border: 1px dashed #6366f1; border-radius: 10px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
         .item-btn:hover { background: #c7d2fe; }
 
-        #word-history { height: 110px; overflow-y: auto; background: rgba(248, 250, 252, 0.8); border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+        #word-history { height: 100px; overflow-y: auto; background: rgba(248, 250, 252, 0.8); border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
         .history-msg { font-size: 0.88rem; padding: 6px 10px; border-radius: 8px; background: #ffffff; border: 1px solid #f1f5f9; width: fit-content; max-width: 90%; }
         .history-msg.system { background: #e2e8f0; color: #475569; align-self: center; }
 
@@ -84,7 +127,6 @@
             100% { transform: translate(-50%, -100%) scale(0.8); opacity: 0; }
         }
 
-        /* 💡 결과 선택 팝업 스타일 */
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: rgba(15, 23, 42, 0.6);
@@ -144,6 +186,11 @@
             </div>
 
             <div id="game-play" class="hidden">
+                <!-- 🎯 돌발 미션 표시 -->
+                <div class="mission-banner" id="mission-box">
+                    🎯 [돌발 미션] '<span id="mission-char">바</span>' 포함 단어 입력 시 아이템 획득!
+                </div>
+
                 <div class="status-bar">
                     <div id="combo-box" class="combo-badge">🔥 <span id="combo-count">0</span> COMBO!</div>
                     <div id="timer-box" class="timer-badge">⏳ <span id="time-left">20</span>초</div>
@@ -158,10 +205,10 @@
                     <button class="item-btn" disabled>보유 아이템 없음</button>
                 </div>
 
-                <div style="margin-bottom: 10px; display: flex; gap: 8px;">
+                <div style="margin-bottom: 8px; display: flex; gap: 8px;">
                     <button class="item-btn" style="background: #fef3c7; color: #92400e; border-color: #f59e0b;" onclick="requestHint()">💡 단어 힌트 보기</button>
                 </div>
-                <div id="word-definition" style="font-size: 0.82rem; color: #475569; background: #f8fafc; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; min-height: 2em; border: 1px solid #e2e8f0;">
+                <div id="word-definition" style="font-size: 0.82rem; color: #475569; background: #f8fafc; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; min-height: 2em; border: 1px solid #e2e8f0;">
                     📖 단어의 뜻이 여기에 표시됩니다.
                 </div>
 
@@ -176,7 +223,7 @@
         </div>
     </div>
 
-    <!-- 💡 게임 종료 결과 / 선택 팝업 -->
+    <!-- 결과 팝업 모달 -->
     <div id="game-over-modal" class="modal-overlay hidden">
         <div class="modal-card">
             <h3>🏆 게임 종료!</h3>
@@ -191,6 +238,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
+        // HTML 특수문자 이스케이프 (XSS 방지)
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         const bgm = new Audio('https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3');
         bgm.loop = true;   
         bgm.volume = 0.2;  
@@ -200,7 +257,10 @@
         let currentRoomId = '';
         let currentTurnSocketId = '';
         let myItems = [];
-        let isBotGame = false; // 💡 현재 게임이 봇전인지 구분하는 상태 변수
+        let isBotGame = false;
+        let currentMissionChar = '바';
+
+        const missionChars = ['바', '가', '나', '마', '라', '자', '사', '하', '구', '수'];
 
         const sndSuccess = new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg');
         const sndMyTurn = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
@@ -264,7 +324,19 @@
 
             scene.add(mesh);
             wordBlocks.push(mesh);
-            if (wordBlocks.length > 20) scene.remove(wordBlocks.shift());
+
+            // GPU 메모리 누수 방지 리소스 해제
+            if (wordBlocks.length > 20) {
+                const oldMesh = wordBlocks.shift();
+                scene.remove(oldMesh);
+                oldMesh.geometry.dispose();
+                if (Array.isArray(oldMesh.material)) {
+                    oldMesh.material.forEach(mat => {
+                        if (mat.map) mat.map.dispose();
+                        mat.dispose();
+                    });
+                }
+            }
         }
 
         function animate3D() {
@@ -288,7 +360,16 @@
             document.getElementById('my-stats').innerText = `🏆 전적: ${wins}승 ${losses}패 | 🔤 최고 기록 단어: ${longest}`;
         }
 
-        function saveGameResult(isWin, usedLongestWord = '') {
+        function updateLongestWord(word) {
+            if (!word) return;
+            let currentLongest = localStorage.getItem('word_longest') || '';
+            if (word.length > currentLongest.length) {
+                localStorage.setItem('word_longest', word);
+                loadLocalStats();
+            }
+        }
+
+        function saveGameResult(isWin) {
             if (isWin) {
                 let wins = parseInt(localStorage.getItem('word_wins') || 0) + 1;
                 localStorage.setItem('word_wins', wins);
@@ -296,14 +377,18 @@
                 let losses = parseInt(localStorage.getItem('word_losses') || 0) + 1;
                 localStorage.setItem('word_losses', losses);
             }
-
-            if (usedLongestWord) {
-                let currentLongest = localStorage.getItem('word_longest') || '';
-                if (usedLongestWord.length > currentLongest.length) {
-                    localStorage.setItem('word_longest', usedLongestWord);
-                }
-            }
             loadLocalStats();
+        }
+
+        function triggerShake() {
+            const container = document.getElementById('main-container');
+            container.classList.add('shake-effect');
+            setTimeout(() => container.classList.remove('shake-effect'), 250);
+        }
+
+        function refreshMission() {
+            currentMissionChar = missionChars[Math.floor(Math.random() * missionChars.length)];
+            document.getElementById('mission-char').innerText = currentMissionChar;
         }
 
         socket.on('connect', () => { mySocketId = socket.id; });
@@ -318,8 +403,9 @@
             }
 
             container.innerHTML = rooms.map(room => {
-                return `<button onclick="quickJoin('${room.roomId}')" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; margin-bottom: 5px;">
-                    <span>🚪 ${room.roomId}</span>
+                const safeRoomId = escapeHtml(room.roomId);
+                return `<button onclick="quickJoin('${safeRoomId}')" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; margin-bottom: 5px;">
+                    <span>🚪 ${safeRoomId}</span>
                     <span style="background: #ffffff; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; border: 1px solid #a5b4fc;">👥 ${room.playerCount} / 4 명</span>
                 </button>`;
             }).join('');
@@ -331,13 +417,12 @@
         }
 
         function joinRoom() {
-            isBotGame = false; // 일반 플레이어 대결 플래그 설정
+            isBotGame = false;
             const roomId = document.getElementById('roomId').value.trim();
             const nickname = document.getElementById('nickname').value.trim();
             if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
 
             bgm.play().catch(error => console.log('재생 에러:', error));
-
             unlockAudio();
             currentRoomId = roomId;
             socket.emit('join_room', { roomId, nickname });
@@ -348,13 +433,12 @@
         }
 
         function startBotGame() {
-            isBotGame = true; // 🤖 컴퓨터 대결 플래그 설정
+            isBotGame = true;
             const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
             const nickname = document.getElementById('nickname').value.trim();
             if (!nickname) return alert('닉네임을 입력해주세요.');
 
             bgm.play().catch(error => console.log('재생 에러:', error));
-
             unlockAudio();
             currentRoomId = roomId;
             socket.emit('start_bot_game', { roomId, nickname });
@@ -362,6 +446,7 @@
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
             document.getElementById('game-play').classList.remove('hidden');
+            refreshMission();
         }
 
         function unlockAudio() {
@@ -403,15 +488,17 @@
             currentTurnSocketId = turnId;
             updateTurnUI(currentTurnNickname);
             renderPlayers(players);
+            refreshMission();
             showReaction('🔥');
         });
 
         function renderPlayers(players) {
             const grid = document.getElementById('players');
             grid.innerHTML = players.map(p => {
+                const safeName = escapeHtml(p.nickname);
                 const isMe = p.id === socket.id ? ' (나)' : '';
                 const isTurn = p.id === currentTurnSocketId ? ' active-turn' : '';
-                return `<div class="player-card${isTurn}">${p.nickname}${isMe}</div>`;
+                return `<div class="player-card${isTurn}">${safeName}${isMe}</div>`;
             }).join('');
         }
         
@@ -425,15 +512,23 @@
         });
 
         socket.on('word_accepted', ({ word, nickname, definition, combo, earnedItem, myItems: updatedItems, socketId }) => {
-            appendHistory(`✅ ${nickname}: ${word}`);
+            appendHistory(`✅ ${escapeHtml(nickname)}: ${word}`);
             document.getElementById('current-word').innerText = word;
             document.getElementById('word-input').value = '';
 
             if (definition) {
-                document.getElementById('word-definition').innerHTML = `<strong>[${word}]</strong> ${definition}`;
+                document.getElementById('word-definition').innerHTML = `<strong>[${word}]</strong> ${escapeHtml(definition)}`;
             }
 
+            // 🔥 피버 모드 및 콤보 연출
+            const container = document.getElementById('main-container');
             const comboBox = document.getElementById('combo-box');
+            if (combo >= 3) {
+                container.classList.add('fever-mode');
+            } else {
+                container.classList.remove('fever-mode');
+            }
+
             if (combo > 1) {
                 comboBox.style.display = 'block';
                 document.getElementById('combo-count').innerText = combo;
@@ -443,16 +538,25 @@
                 sndSuccess.playbackRate = 1.0;
             }
 
+            // 🎯 돌발 미션 단어 성공 확인
+            if (word.includes(currentMissionChar)) {
+                showReaction('🎯');
+                appendHistory(`🎯 미션 성공! '${currentMissionChar}' 포함 단어 입력`, 'system');
+                confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+                refreshMission();
+            }
+
             sndSuccess.play();
+            triggerShake();
             showReaction(combo > 2 ? '⚡' : '✨'); 
             add3DWordBlock(word);
-            saveGameResult(false, word);
+            updateLongestWord(word);
 
             if (socketId === socket.id && updatedItems) {
                 myItems = updatedItems;
                 renderItemSlots();
                 if (earnedItem) {
-                    appendHistory(`🎁 아이템 획득! [${earnedItem === 'SKIP' ? '턴 건너뛰기' : '제시어 변경'}]`, 'system');
+                    appendHistory(`🎁 아이템 획득! [${earnedItem}]`, 'system');
                 }
             }
         });
@@ -476,7 +580,10 @@
                 return;
             }
             container.innerHTML = myItems.map(item => {
-                const label = item === 'SKIP' ? '⚡ 턴 건너뛰기' : '🎲 제시어 변경';
+                let label = '🎲 아이템';
+                if (item === 'SKIP') label = '⚡ 턴 건너뛰기';
+                else if (item === 'CHANGE') label = '🎲 제시어 변경';
+                else if (item === 'ATTACK') label = '⏱️ 시간 차감 (-5초)';
                 return `<button class="item-btn" onclick="useItem('${item}')">${label}</button>`;
             }).join('');
         }
@@ -493,6 +600,7 @@
 
         socket.on('item_used', ({ nickname, message, newWord }) => {
             appendHistory(message, 'system');
+            triggerShake();
             showReaction('🪄');
             if (newWord) document.getElementById('current-word').innerText = newWord;
         });
@@ -529,45 +637,56 @@
             }, 2000);
         });
 
-        // 💡 게임 종료 시 팝업창을 띄우는 처리
+        // 🏆 게임 종료 시 승리 폭죽 연출
         socket.on('game_over', ({ winner }) => {
             sndGameOver.play();
             showReaction('🏆');
+            
+            // 승리 폭죽 세레머니
+            confetti({
+                particleCount: 100,
+                spread: 80,
+                origin: { y: 0.6 }
+            });
+
+            document.getElementById('main-container').classList.remove('fever-mode');
             
             const myNickname = document.getElementById('nickname').value.trim();
             const isWin = winner.includes(myNickname);
             saveGameResult(isWin);
 
             setTimeout(() => {
-                document.getElementById('game-over-winner').innerText = `최종 승자: ${winner} 🎉`;
+                document.getElementById('game-over-winner').innerText = `최종 승자: ${escapeHtml(winner)} 🎉`;
                 document.getElementById('game-over-modal').classList.remove('hidden');
             }, 1200);
         });
 
-        // 💡 [재대결하기] 클릭 시 실행
         function rematchGame() {
             document.getElementById('game-over-modal').classList.add('hidden');
             
-            // 플레이 판 초기화
+            // UI 초기화
             document.getElementById('word-history').innerHTML = '';
             document.getElementById('current-word').innerText = '준비!';
             document.getElementById('word-definition').innerHTML = '📖 단어의 뜻이 여기에 표시됩니다.';
+            document.getElementById('word-input').value = '';
+            document.getElementById('word-input').disabled = true;
+            document.getElementById('submit-btn').disabled = true;
+            document.getElementById('main-container').classList.remove('fever-mode');
+            
             myItems = [];
             renderItemSlots();
 
             if (isBotGame) {
-                // 🤖 컴퓨터 대결인 경우: 바로 봇전 새 게임 시작
                 const nickname = document.getElementById('nickname').value.trim();
                 socket.emit('start_bot_game', { roomId: currentRoomId, nickname });
+                refreshMission();
             } else {
-                // 👥 일반 멀티플레이 대결인 경우: 방 대기실로 이동
                 document.getElementById('game-play').classList.add('hidden');
                 document.getElementById('status-msg').innerText = '대기실로 돌아왔습니다. 준비 후 시작해주세요!';
                 socket.emit('get_room_info', { roomId: currentRoomId });
             }
         }
 
-        // 💡 [방 나가기] 클릭 시 실행
         function leaveRoom() {
             document.getElementById('game-over-modal').classList.add('hidden');
             socket.emit('leave_room');
@@ -587,7 +706,7 @@
                 document.getElementById('word-input').focus();
                 sndMyTurn.play();
             } else {
-                status.innerText = `⏳ ${turnNickname} 님의 순서입니다...`;
+                status.innerText = `⏳ ${escapeHtml(turnNickname)} 님의 순서입니다...`;
             }
         }
 
