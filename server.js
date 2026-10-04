@@ -28,7 +28,7 @@ async function checkWordInDictionary(word) {
     }
 }
 
-// 🤖 국어사전에서 특정 글자로 시작하는 단어를 찾는 컴퓨터 전용 함수
+// 🤖 컴퓨터 전용 단어 검색 함수
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(startChar)}&advanced=y&method=start&pos=1&num=20`;
@@ -49,6 +49,53 @@ async function getBotWord(startChar, usedWords) {
     }
 }
 
+// 🧹 [핵심 추가] 플레이어가 방을 옮기거나 나갈 때 좀비방을 완벽히 청소하는 함수
+function removePlayerFromAllRooms(socket) {
+    for (const roomId in rooms) {
+        const room = rooms[roomId];
+        const index = room.players.findIndex(p => p.id === socket.id);
+        
+        if (index !== -1) {
+            socket.leave(roomId); // 소켓 통신 그룹에서도 확실히 탈퇴
+            room.players.splice(index, 1);
+            delete room.items[socket.id];
+            
+            const realPlayersCount = room.players.filter(p => !p.isBot).length;
+            
+            // 진짜 사람이 0명이면 방을 즉시 폭파
+            if (realPlayersCount === 0) {
+                if (room.timer) clearInterval(room.timer);
+                delete rooms[roomId];
+            } else {
+                room.currentTurn = room.currentTurn % room.players.length;
+                io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
+                
+                if (room.isStarted && realPlayersCount === 1) {
+                    if (room.timer) clearInterval(room.timer);
+                    const winner = room.players.find(p => !p.isBot);
+                    io.to(roomId).emit('game_over', { winner: (winner ? winner.nickname : '알 수 없음') + ' (상대방 퇴장)' });
+                    
+                    room.isStarted = false;
+                    room.usedWords.clear();
+                    room.lastWord = '';
+                    room.combo = 0;
+                } else if (room.isStarted) {
+                    const currentPlayer = room.players[room.currentTurn];
+                    if (currentPlayer) {
+                        io.to(roomId).emit('turn_changed', {
+                            currentTurnSocketId: currentPlayer.id,
+                            currentTurnNickname: currentPlayer.nickname,
+                            lastWord: room.lastWord,
+                            message: '누군가 퇴장하여 순서가 조정되었습니다.'
+                        });
+                        startTurnTimer(roomId); 
+                    }
+                }
+            }
+        }
+    }
+}
+
 function startTurnTimer(roomId) {
     const room = rooms[roomId];
     if (!room) return;
@@ -56,7 +103,7 @@ function startTurnTimer(roomId) {
     if (room.timer) clearInterval(room.timer);
 
     const currentPlayer = room.players[room.currentTurn];
-    if (!currentPlayer) return; // 안전장치
+    if (!currentPlayer) return;
 
     const bonusSec = room.bonusTime[currentPlayer.id] || 0;
     room.timeLeft = 20 + bonusSec;
@@ -91,9 +138,16 @@ function nextTurn(roomId, systemMessage = '') {
     } while (!room.players[room.currentTurn]?.isAlive && attempts < room.players.length);
 
     const alivePlayers = room.players.filter(p => p.isAlive);
+    
     if (alivePlayers.length <= 1) {
         clearInterval(room.timer);
         io.to(roomId).emit('game_over', { winner: alivePlayers[0]?.nickname || '없음' });
+        
+        room.isStarted = false;
+        room.usedWords.clear();
+        room.lastWord = '';
+        room.combo = 0;
+        room.players = room.players.filter(p => !p.isBot);
         return;
     }
 
@@ -110,13 +164,11 @@ function nextTurn(roomId, systemMessage = '') {
 
     startTurnTimer(roomId);
 
-    // 🤖 차례가 컴퓨터(isBot)라면 자연스럽게 생각 후 단어 제출
     if (currentPlayer.isBot) {
         handleBotTurn(roomId);
     }
 }
 
-// 🤖 컴퓨터 턴 자동 응답 처리
 function handleBotTurn(roomId) {
     const room = rooms[roomId];
     if (!room) return;
@@ -125,7 +177,7 @@ function handleBotTurn(roomId) {
     if (!currentPlayer) return;
 
     const lastChar = room.lastWord ? room.lastWord.slice(-1) : '가';
-    const thinkTime = Math.floor(Math.random() * 1000) + 1500; // 1.5초~2.5초 생각
+    const thinkTime = Math.floor(Math.random() * 1000) + 1500;
 
     setTimeout(async () => {
         if (!rooms[roomId] || !room.isStarted) return;
@@ -153,6 +205,9 @@ function handleBotTurn(roomId) {
 
 io.on('connection', (socket) => {
     socket.on('join_room', ({ roomId, nickname }) => {
+        // 💡 새 방에 들어가기 전에 예전 유령 흔적을 모두 지웁니다.
+        removePlayerFromAllRooms(socket);
+        
         socket.join(roomId);
         if (!rooms[roomId]) {
             rooms[roomId] = {
@@ -172,8 +227,10 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
     });
 
-    // 🤖 컴퓨터 대결 시작 소켓 이벤트
     socket.on('start_bot_game', ({ roomId, nickname }) => {
+        // 💡 봇 대결을 시작할 때도 예전 방의 흔적을 확실히 지웁니다.
+        removePlayerFromAllRooms(socket);
+        
         socket.join(roomId);
         
         rooms[roomId] = {
@@ -210,6 +267,7 @@ io.on('connection', (socket) => {
         room.isStarted = true;
         room.combo = 0;
         room.lastWordTime = Date.now();
+        room.players.forEach(p => p.isAlive = true);
         
         io.to(roomId).emit('game_start', {
             players: room.players,
@@ -229,11 +287,7 @@ io.on('connection', (socket) => {
         if (!room || !room.isStarted) return;
         
         const currentPlayer = room.players[room.currentTurn];
-        
-        // 💡 플레이어가 갑자기 나가서 순서가 꼬였을 때 서버 다운 방지
-        if (!currentPlayer) {
-            return;
-        }
+        if (!currentPlayer) return;
 
         if (currentPlayer.id !== socket.id) {
             socket.emit('error_msg', '본인 턴이 아닙니다.');
@@ -333,44 +387,9 @@ io.on('connection', (socket) => {
         socket.emit('update_my_items', { items: userItems });
     });
 
+    // 💡 연결이 끊어졌을 때도 동일한 청소 함수를 호출합니다.
     socket.on('disconnect', () => {
-        for (const roomId in rooms) {
-            const room = rooms[roomId];
-            const index = room.players.findIndex(p => p.id === socket.id);
-            if (index !== -1) {
-                room.players.splice(index, 1);
-                delete room.items[socket.id];
-                
-                if (room.players.length === 0) {
-                    if (room.timer) clearInterval(room.timer);
-                    delete rooms[roomId];
-                } else {
-                    // 💡 남아있는 사람 수에 맞춰 턴 번호가 배열을 벗어나지 않도록 재조정
-                    room.currentTurn = room.currentTurn % room.players.length;
-                    
-                    io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
-                    
-                    if (room.isStarted && room.players.length === 1) {
-                        // 게임 진행 중인데 1명만 남은 경우 부전승 처리
-                        if (room.timer) clearInterval(room.timer);
-                        io.to(roomId).emit('game_over', { winner: room.players[0].nickname + ' (상대방 퇴장)' });
-                    } else if (room.isStarted) {
-                        const currentPlayer = room.players[room.currentTurn];
-                        if (currentPlayer) {
-                            io.to(roomId).emit('turn_changed', {
-                                currentTurnSocketId: currentPlayer.id,
-                                currentTurnNickname: currentPlayer.nickname,
-                                lastWord: room.lastWord,
-                                message: '누군가 퇴장하여 순서가 조정되었습니다.'
-                            });
-                            // 💡 누군가 퇴장했을 때 남은 플레이어를 위해 타이머를 다시 시작
-                            startTurnTimer(roomId); 
-                        }
-                    }
-                }
-                break;
-            }
-        }
+        removePlayerFromAllRooms(socket);
     });
 });
 
