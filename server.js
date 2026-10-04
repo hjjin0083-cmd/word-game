@@ -28,6 +28,27 @@ async function checkWordInDictionary(word) {
     }
 }
 
+// 🤖 [추가] 국어사전에서 특정 글자로 시작하는 단어를 찾는 컴퓨터 전용 함수
+async function getBotWord(startChar, usedWords) {
+    const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
+    const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(startChar)}&advanced=y&method=start&pos=1&num=20`;
+
+    try {
+        const response = await fetch(url);
+        const xmlText = await response.text();
+        const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
+        const candidates = matches
+            .map(m => m.replace(/<\/?word>/g, '').trim())
+            .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
+
+        if (candidates.length === 0) return null;
+        return candidates[Math.floor(Math.random() * candidates.length)];
+    } catch (error) {
+        console.error('컴퓨터 단어 검색 에러:', error);
+        return null;
+    }
+}
+
 function startTurnTimer(roomId) {
     const room = rooms[roomId];
     if (!room) return;
@@ -35,10 +56,9 @@ function startTurnTimer(roomId) {
     if (room.timer) clearInterval(room.timer);
 
     const currentPlayer = room.players[room.currentTurn];
-    // 💡 [보너스 제한 시간 적용] 이전 턴에 4글자 이상 맞췄다면 보너스 시간 부여
     const bonusSec = room.bonusTime[currentPlayer.id] || 0;
     room.timeLeft = 20 + bonusSec;
-    delete room.bonusTime[currentPlayer.id]; // 보너스 사용 후 차감
+    delete room.bonusTime[currentPlayer.id];
 
     io.to(roomId).emit('timer_update', { 
         timeLeft: room.timeLeft, 
@@ -84,6 +104,45 @@ function nextTurn(roomId, systemMessage = '') {
     });
 
     startTurnTimer(roomId);
+
+    // 🤖 [추가] 차례가 컴퓨터(isBot)라면 자연스럽게 생각 후 단어 제출
+    const currentPlayer = room.players[room.currentTurn];
+    if (currentPlayer && currentPlayer.isBot) {
+        handleBotTurn(roomId);
+    }
+}
+
+// 🤖 [추가] 컴퓨터 턴 자동 응답 처리
+function handleBotTurn(roomId) {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const currentPlayer = room.players[room.currentTurn];
+    const lastChar = room.lastWord ? room.lastWord.slice(-1) : '가';
+    const thinkTime = Math.floor(Math.random() * 1000) + 1500; // 1.5초~2.5초 생각
+
+    setTimeout(async () => {
+        if (!rooms[roomId] || !room.isStarted) return;
+
+        const botWord = await getBotWord(lastChar, room.usedWords);
+
+        if (botWord) {
+            room.usedWords.add(botWord);
+            room.lastWord = botWord;
+            io.to(roomId).emit('word_accepted', {
+                word: botWord,
+                nickname: currentPlayer.nickname,
+                combo: 1,
+                earnedItem: null,
+                myItems: [],
+                socketId: currentPlayer.id
+            });
+            nextTurn(roomId);
+        } else {
+            currentPlayer.isAlive = false;
+            nextTurn(roomId, `🤖 ${currentPlayer.nickname}(이)가 단어를 떠올리지 못해 기권했습니다!`);
+        }
+    }, thinkTime);
 }
 
 io.on('connection', (socket) => {
@@ -92,9 +151,9 @@ io.on('connection', (socket) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 players: [], currentTurn: 0, lastWord: '', usedWords: new Set(),
-                isStarted: false, timer: null, timeLeft: 10,
+                isStarted: false, timer: null, timeLeft: 20,
                 combo: 0, lastWordTime: 0,
-                bonusTime: {}, items: {} // 플레이어별 아이템 및 보너스 시간
+                bonusTime: {}, items: {}
             };
         }
         const room = rooms[roomId];
@@ -104,6 +163,38 @@ io.on('connection', (socket) => {
         room.players.push({ id: socket.id, nickname, isAlive: true });
         room.items[socket.id] = [];
         io.to(roomId).emit('room_update', { players: room.players });
+    });
+
+    // 🤖 [추가] 컴퓨터 대결 시작 소켓 이벤트
+    socket.on('start_bot_game', ({ roomId, nickname }) => {
+        socket.join(roomId);
+        
+        rooms[roomId] = {
+            players: [
+                { id: socket.id, nickname: nickname, isAlive: true },
+                { id: 'BOT_PLAYER', nickname: '🤖 알파고', isAlive: true, isBot: true }
+            ],
+            currentTurn: 0,
+            lastWord: '',
+            usedWords: new Set(),
+            isStarted: true,
+            timer: null,
+            timeLeft: 20,
+            combo: 0,
+            lastWordTime: Date.now(),
+            bonusTime: {},
+            items: { [socket.id]: [], 'BOT_PLAYER': [] }
+        };
+
+        const room = rooms[roomId];
+        io.to(roomId).emit('room_update', { players: room.players });
+        io.to(roomId).emit('game_start', {
+            players: room.players,
+            currentTurnSocketId: room.players[0].id,
+            currentTurnNickname: room.players[0].nickname
+        });
+
+        startTurnTimer(roomId);
     });
 
     socket.on('start_game', ({ roomId }) => {
@@ -153,7 +244,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 💡 [실시간 콤보 시스템] 3초 이내 단어 입력 시 콤보 증가
         const now = Date.now();
         if (now - room.lastWordTime <= 3500) {
             room.combo++;
@@ -162,14 +252,12 @@ io.on('connection', (socket) => {
         }
         room.lastWordTime = now;
 
-        // 💡 [글자 수 보너스 & 아이템 부여]
         let earnedItem = null;
         if (trimmedWord.length >= 4) {
-            room.bonusTime[socket.id] = (room.bonusTime[socket.id] || 0) + 3; // 다음 턴 +3초 보너스
+            room.bonusTime[socket.id] = (room.bonusTime[socket.id] || 0) + 3;
         }
 
-        // 3콤보 이상이거나 4글자 이상 단어 작성 시 무작위 아이템 지급 (최대 2개 소지)
-        if ((room.combo >= 3 || trimmedWord.length >= 4) && room.items[socket.id].length < 2) {
+        if ((room.combo >= 3 || trimmedWord.length >= 4) && room.items[socket.id]?.length < 2) {
             const itemTypes = ['SKIP', 'CHANGE_CHAR'];
             earnedItem = itemTypes[Math.floor(Math.random() * itemTypes.length)];
             room.items[socket.id].push(earnedItem);
@@ -190,7 +278,6 @@ io.on('connection', (socket) => {
         nextTurn(roomId);
     });
 
-    // 💡 [특수 아이템 스킬 사용 이벤트]
     socket.on('use_item', ({ roomId, itemType }) => {
         const room = rooms[roomId];
         if (!room || !room.isStarted) return;
@@ -201,13 +288,11 @@ io.on('connection', (socket) => {
         const userItems = room.items[socket.id] || [];
         const itemIndex = userItems.indexOf(itemType);
 
-        if (itemIndex === -1) return; // 아이템 없음
+        if (itemIndex === -1) return;
 
-        // 사용한 아이템 제거
         userItems.splice(itemIndex, 1);
 
         if (itemType === 'SKIP') {
-            // 턴 건너뛰기
             io.to(roomId).emit('item_used', { 
                 nickname: currentPlayer.nickname, 
                 itemType: 'SKIP', 
@@ -215,7 +300,6 @@ io.on('connection', (socket) => {
             });
             nextTurn(roomId);
         } else if (itemType === 'CHANGE_CHAR') {
-            // 한방 단어 카운터 & 제시어 강제 변경 (쉬운 글자로 전환)
             const easyChars = ['가', '나', '다', '라', '마', '바', '사', '아', '자', '차', '카', '타', '파', '하'];
             const newChar = easyChars[Math.floor(Math.random() * easyChars.length)];
             room.lastWord = newChar;
@@ -227,7 +311,7 @@ io.on('connection', (socket) => {
                 message: `🎲 ${currentPlayer.nickname} 님이 [제시어 변경] 사용! 첫 글자: '${newChar}'` 
             });
 
-            startTurnTimer(roomId); // 타이머 리셋
+            startTurnTimer(roomId);
         }
 
         socket.emit('update_my_items', { items: userItems });

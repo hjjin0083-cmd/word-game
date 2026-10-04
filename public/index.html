@@ -98,30 +98,14 @@
         <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 긴 단어: 없음</div>
 
         <div id="lobby">
-<!-- 변경 전 -->
-<div id="lobby">
-    <div class="form-group">
-        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
-        <input type="text" id="nickname" placeholder="닉네임 입력">
-        <button onclick="joinRoom()">입장하기</button>
-    </div>
-</div>
-
-<!-- 변경 후 -->
-<div id="lobby">
-    <div class="form-group">
-        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
-        <input type="text" id="nickname" placeholder="닉네임 입력">
-        <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
-        <button onclick="startBotGame()" style="background-color: #10b981;">🤖 컴퓨터와 대결하기</button>
-    </div>
-</div>
             <div class="form-group">
                 <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
                 <input type="text" id="nickname" placeholder="닉네임 입력">
-                <button onclick="joinRoom()">입장하기</button>
+                <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
+                <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
             </div>
         </div>
+
 
         <div id="game-area" class="hidden">
             <div class="player-section">
