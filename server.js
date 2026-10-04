@@ -28,41 +28,75 @@ async function checkWordInDictionary(word) {
     }
 }
 
-// 🤖 컴퓨터 전용 단어 검색 함수
+// 🤖 컴퓨터 전용 단어 검색 함수 (모든 두음법칙 고려)
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
-    const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(startChar)}&advanced=y&method=start&pos=1&num=20`;
-
-    try {
-        const response = await fetch(url);
-        const xmlText = await response.text();
-        const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
-        const candidates = matches
-            .map(m => m.replace(/<\/?word>/g, '').trim())
-            .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
-
-        if (candidates.length === 0) return null;
-        return candidates[Math.floor(Math.random() * candidates.length)];
-    } catch (error) {
-        console.error('컴퓨터 단어 검색 에러:', error);
-        return null;
+    
+    // 두음법칙이 적용된 글자들과 원래 글자 모두 후보로 검색
+    const searchChars = [startChar];
+    const converted = applyDueumRule(startChar);
+    if (converted !== startChar) {
+        searchChars.push(converted);
     }
+
+    let candidates = [];
+    for (const char of searchChars) {
+        const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(char)}&advanced=y&method=start&pos=1&num=20`;
+        try {
+            const response = await fetch(url);
+            const xmlText = await response.text();
+            const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
+            const words = matches
+                .map(m => m.replace(/<\/?word>/g, '').trim())
+                .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
+            candidates = candidates.concat(words);
+        } catch (error) {
+            console.error('컴퓨터 단어 검색 에러:', error);
+        }
+    }
+
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-// 🧹 [핵심 추가] 플레이어가 방을 옮기거나 나갈 때 좀비방을 완벽히 청소하는 함수
+// 💡 [전체 확장] 모든 두음법칙 변환 함수 (ㄹ, 녀, 뇨, 뉴, 니, 력 등 완벽 적용)
+function applyDueumRule(char) {
+    const dueumMap = {
+        // 'ㄹ' 초성 ➔ 'ㄴ' 변환 (라, 래, 로, 뢰, 루, 르 등)
+        '라': '나', '락': '낙', '란': '난', '랄': '날', '람': '남', '랍': '납', '랑': '낭',
+        '래': '내', '랭': '냉', '랜': '낸', '랫': '냇', 
+        '로': '노', '록': '녹', '론': '논', '롬': '놈', '롯': '놋',
+        '뢰': '뇌', '루': '누', '룩': '눅', '룬': '눈', '룸': '눔', '룻': '눗', '룽': '눙',
+        '르': '느', '른': '는', '름': '늠', '릉': '능',
+        // 'ㄹ' 초성 ➔ '이' 변환 (랴, 려, 례, 료, 류, 리 등)
+        '랴': '야', '려': '여', '력': '역', '련': '년(연)', '렬': '열', '렴': '염', '렵': '엽', '령': '영',
+        '례': '예', '료': '요', '룡': '용', '류': '유', '륙': '육', '률': '율', '융': '융', '리': '이', '익': '익',
+        // 'ㄴ' 초성 ➔ 'ㅇ' 변환 (녀, 뇨, 뉴, 니 등)
+        '녀': '여', '녁': '역', '년': '연', '념': '염', '녕': '영',
+        '뇨': '요', '뉴': '유', '니': '이'
+    };
+    
+    // 만약 '년(연)'처럼 표기된 경우 기본 '연'이나 '년'으로 유연하게 매칭되도록 처리
+    let mapped = dueumMap[char];
+    if (mapped && mapped.includes('(')) {
+        return mapped.split('(')[0]; // 기본 변환 반환
+    }
+    return mapped || char;
+}
+
+// 🧹 플레이어가 방을 옮기거나 나갈 때 좀비방을 완벽히 청소하는 함수
 function removePlayerFromAllRooms(socket) {
     for (const roomId in rooms) {
         const room = rooms[roomId];
         const index = room.players.findIndex(p => p.id === socket.id);
         
         if (index !== -1) {
-            socket.leave(roomId); // 소켓 통신 그룹에서도 확실히 탈퇴
+            socket.leave(roomId);
             room.players.splice(index, 1);
             delete room.items[socket.id];
             
             const realPlayersCount = room.players.filter(p => !p.isBot).length;
             
-            // 진짜 사람이 0명이면 방을 즉시 폭파
             if (realPlayersCount === 0) {
                 if (room.timer) clearInterval(room.timer);
                 delete rooms[roomId];
@@ -205,7 +239,6 @@ function handleBotTurn(roomId) {
 
 io.on('connection', (socket) => {
     socket.on('join_room', ({ roomId, nickname }) => {
-        // 💡 새 방에 들어가기 전에 예전 유령 흔적을 모두 지웁니다.
         removePlayerFromAllRooms(socket);
         
         socket.join(roomId);
@@ -228,7 +261,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('start_bot_game', ({ roomId, nickname }) => {
-        // 💡 봇 대결을 시작할 때도 예전 방의 흔적을 확실히 지웁니다.
         removePlayerFromAllRooms(socket);
         
         socket.join(roomId);
@@ -297,10 +329,18 @@ io.on('connection', (socket) => {
         const trimmedWord = word.trim();
         if (trimmedWord.length < 2) return socket.emit('error_msg', '2글자 이상 입력해주세요.');
         
+        // 💡 [확장된 두음법칙 적용 검증 로직]
         if (room.lastWord) {
             const lastChar = room.lastWord.slice(-1);
-            if (lastChar !== trimmedWord.charAt(0)) {
-                return socket.emit('error_msg', `'${lastChar}'(으)로 시작해야 합니다.`);
+            const firstChar = trimmedWord.charAt(0);
+
+            const normalMatch = (lastChar === firstChar);
+            const dueumMatch = (applyDueumRule(lastChar) === firstChar);
+
+            if (!normalMatch && !dueumMatch) {
+                const convertedChar = applyDueumRule(lastChar);
+                const guideText = convertedChar !== lastChar ? `' 또는 '${convertedChar}'` : '';
+                return socket.emit('error_msg', `'${lastChar}'(${guideText})로 시작해야 합니다.`);
             }
         }
 
@@ -387,7 +427,6 @@ io.on('connection', (socket) => {
         socket.emit('update_my_items', { items: userItems });
     });
 
-    // 💡 연결이 끊어졌을 때도 동일한 청소 함수를 호출합니다.
     socket.on('disconnect', () => {
         removePlayerFromAllRooms(socket);
     });
