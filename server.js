@@ -10,29 +10,37 @@ app.use(express.static('public'));
 
 const rooms = {};
 
-// 국어사전 검색 함수 (명사만 검색)
+// 💡 [수정] 국어사전 검색 및 단어 뜻(definition)까지 함께 가져오는 함수
 async function checkWordInDictionary(word) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
     if (!apiKey || apiKey === '여기에_발급받은_API_키를_넣으세요') {
-        return true; 
+        return { exists: true, definition: '테스트 모드입니다.' }; 
     }
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(word)}&advanced=y&method=exact&pos=1`;
     try {
         const response = await fetch(url);
         const xmlText = await response.text();
-        const match = xmlText.match(/<total>(\d+)<\/total>/);
-        return match && parseInt(match[1]) > 0;
+        const matchTotal = xmlText.match(/<total>(\d+)<\/total>/);
+        const exists = matchTotal && parseInt(matchTotal[1]) > 0;
+        
+        let definition = '뜻을 찾을 수 없습니다.';
+        if (exists) {
+            const defMatch = xmlText.match(/<definition>(.*?)<\/definition>/);
+            if (defMatch) {
+                definition = defMatch[1].replace(/<[:/a-z]+>/g, '').trim(); // HTML 태그 제거
+            }
+        }
+        return { exists, definition };
     } catch (error) {
         console.error('사전 통신 에러:', error);
-        return false; 
+        return { exists: false, definition: '' }; 
     }
 }
 
-// 🤖 컴퓨터 전용 단어 검색 함수 (모든 두음법칙 고려)
+// 🤖 컴퓨터 전용 단어 검색 함수
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
     
-    // 두음법칙이 적용된 글자들과 원래 글자 모두 후보로 검색
     const searchChars = [startChar];
     const converted = applyDueumRule(startChar);
     if (converted !== startChar) {
@@ -59,20 +67,17 @@ async function getBotWord(startChar, usedWords) {
     return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-// 💡 [추가] '량 -> 양' 포함 모든 두음법칙 변환 함수
+// 두음법칙 변환 함수
 function applyDueumRule(char) {
     const dueumMap = {
-        // 'ㄹ' 초성 ➔ 'ㄴ' 변환 (라, 래, 로, 뢰, 루, 르 등)
         '라': '나', '락': '낙', '란': '난', '랄': '날', '람': '남', '랍': '납', '랑': '낭',
         '래': '내', '랭': '냉', '랜': '낸', '랫': '냇', 
         '로': '노', '록': '녹', '론': '논', '롬': '놈', '롯': '놋',
         '뢰': '뇌', '루': '누', '룩': '눅', '룬': '눈', '룸': '눔', '룻': '눗', '룽': '눙',
         '르': '느', '른': '는', '름': '늠', '릉': '능',
-        // 'ㄹ' 초성 ➔ '이' 또는 '양' 변환 ('량' 추가)
         '랴': '야', '려': '여', '력': '역', '련': '년(연)', '렬': '열', '렴': '염', '렵': '엽', '령': '영',
         '례': '예', '료': '요', '룡': '용', '류': '유', '륙': '육', '률': '율', '융': '융', '리': '이', '익': '익',
-        '량': '양', // 💡 '량'이 첫 글자로 올 때 '양'으로 허용
-        // 'ㄴ' 초성 ➔ 'ㅇ' 변환 (녀, 뇨, 뉴, 니 등)
+        '량': '양',
         '녀': '여', '녁': '역', '년': '연', '념': '염', '녕': '영',
         '뇨': '요', '뉴': '유', '니': '이'
     };
@@ -84,7 +89,6 @@ function applyDueumRule(char) {
     return mapped || char;
 }
 
-// 🧹 플레이어가 방을 옮기거나 나갈 때 좀비방을 완벽히 청소하는 함수
 function removePlayerFromAllRooms(socket) {
     for (const roomId in rooms) {
         const room = rooms[roomId];
@@ -224,6 +228,7 @@ function handleBotTurn(roomId) {
             io.to(roomId).emit('word_accepted', {
                 word: botWord,
                 nickname: currentPlayer.nickname,
+                definition: '컴퓨터가 입력한 단어입니다.',
                 combo: 1,
                 earnedItem: null,
                 myItems: [],
@@ -329,7 +334,6 @@ io.on('connection', (socket) => {
         const trimmedWord = word.trim();
         if (trimmedWord.length < 2) return socket.emit('error_msg', '2글자 이상 입력해주세요.');
         
-        // 💡 [두음법칙 검증 로직 ('량' 포함)]
         if (room.lastWord) {
             const lastChar = room.lastWord.slice(-1);
             const firstChar = trimmedWord.charAt(0);
@@ -346,8 +350,9 @@ io.on('connection', (socket) => {
 
         if (room.usedWords.has(trimmedWord)) return socket.emit('error_msg', '이미 사용된 단어입니다.');
 
-        const isExist = await checkWordInDictionary(trimmedWord);
-        if (!isExist) {
+        // 💡 뜻풀이 포함 검증 결과 받기
+        const checkResult = await checkWordInDictionary(trimmedWord);
+        if (!checkResult.exists) {
             currentPlayer.isAlive = false;
             socket.emit('error_msg', '국어사전에 없는 단어입니다! (탈락)');
             nextTurn(roomId, `💀 ${currentPlayer.nickname} 님 탈락! (사전에 없는 단어: ${trimmedWord})`);
@@ -376,9 +381,11 @@ io.on('connection', (socket) => {
         room.usedWords.add(trimmedWord);
         room.lastWord = trimmedWord;
 
+        // 💡 클라이언트로 뜻(definition) 전달 추가
         io.to(roomId).emit('word_accepted', { 
             word: trimmedWord, 
             nickname: currentPlayer.nickname,
+            definition: checkResult.definition, 
             combo: room.combo,
             earnedItem: earnedItem,
             myItems: room.items[socket.id],
