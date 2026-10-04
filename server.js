@@ -28,7 +28,7 @@ async function checkWordInDictionary(word) {
     }
 }
 
-// 🤖 [추가] 국어사전에서 특정 글자로 시작하는 단어를 찾는 컴퓨터 전용 함수
+// 🤖 국어사전에서 특정 글자로 시작하는 단어를 찾는 컴퓨터 전용 함수
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(startChar)}&advanced=y&method=start&pos=1&num=20`;
@@ -56,6 +56,8 @@ function startTurnTimer(roomId) {
     if (room.timer) clearInterval(room.timer);
 
     const currentPlayer = room.players[room.currentTurn];
+    if (!currentPlayer) return; // 안전장치
+
     const bonusSec = room.bonusTime[currentPlayer.id] || 0;
     room.timeLeft = 20 + bonusSec;
     delete room.bonusTime[currentPlayer.id];
@@ -86,7 +88,7 @@ function nextTurn(roomId, systemMessage = '') {
     do {
         room.currentTurn = (room.currentTurn + 1) % room.players.length;
         attempts++;
-    } while (!room.players[room.currentTurn].isAlive && attempts < room.players.length);
+    } while (!room.players[room.currentTurn]?.isAlive && attempts < room.players.length);
 
     const alivePlayers = room.players.filter(p => p.isAlive);
     if (alivePlayers.length <= 1) {
@@ -95,9 +97,12 @@ function nextTurn(roomId, systemMessage = '') {
         return;
     }
 
+    const currentPlayer = room.players[room.currentTurn];
+    if (!currentPlayer) return;
+
     io.to(roomId).emit('turn_changed', {
-        currentTurnSocketId: room.players[room.currentTurn].id,
-        currentTurnNickname: room.players[room.currentTurn].nickname,
+        currentTurnSocketId: currentPlayer.id,
+        currentTurnNickname: currentPlayer.nickname,
         lastWord: room.lastWord,
         message: systemMessage,
         combo: room.combo
@@ -105,19 +110,20 @@ function nextTurn(roomId, systemMessage = '') {
 
     startTurnTimer(roomId);
 
-    // 🤖 [추가] 차례가 컴퓨터(isBot)라면 자연스럽게 생각 후 단어 제출
-    const currentPlayer = room.players[room.currentTurn];
-    if (currentPlayer && currentPlayer.isBot) {
+    // 🤖 차례가 컴퓨터(isBot)라면 자연스럽게 생각 후 단어 제출
+    if (currentPlayer.isBot) {
         handleBotTurn(roomId);
     }
 }
 
-// 🤖 [추가] 컴퓨터 턴 자동 응답 처리
+// 🤖 컴퓨터 턴 자동 응답 처리
 function handleBotTurn(roomId) {
     const room = rooms[roomId];
     if (!room) return;
 
     const currentPlayer = room.players[room.currentTurn];
+    if (!currentPlayer) return;
+
     const lastChar = room.lastWord ? room.lastWord.slice(-1) : '가';
     const thinkTime = Math.floor(Math.random() * 1000) + 1500; // 1.5초~2.5초 생각
 
@@ -163,11 +169,10 @@ io.on('connection', (socket) => {
         room.players.push({ id: socket.id, nickname, isAlive: true });
         room.items[socket.id] = [];
         
-        // 💡 1번 수정 반영: 게임 시작 여부 전달
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
     });
 
-    // 🤖 [추가] 컴퓨터 대결 시작 소켓 이벤트
+    // 🤖 컴퓨터 대결 시작 소켓 이벤트
     socket.on('start_bot_game', ({ roomId, nickname }) => {
         socket.join(roomId);
         
@@ -189,7 +194,6 @@ io.on('connection', (socket) => {
         };
 
         const room = rooms[roomId];
-        // 💡 2번 수정 반영: 게임 시작 여부 전달
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
         io.to(roomId).emit('game_start', {
             players: room.players,
@@ -217,7 +221,6 @@ io.on('connection', (socket) => {
 
     socket.on('get_room_info', ({ roomId }) => {
         const room = rooms[roomId];
-        // 💡 3번 수정 반영: 게임 시작 여부 전달
         if (room) socket.emit('room_update', { players: room.players, isStarted: room.isStarted });
     });
 
@@ -226,7 +229,16 @@ io.on('connection', (socket) => {
         if (!room || !room.isStarted) return;
         
         const currentPlayer = room.players[room.currentTurn];
-        if (!currentPlayer || currentPlayer.id !== socket.id) return socket.emit('error_msg', '본인 턴이 아닙니다.');
+        
+        // 💡 플레이어가 갑자기 나가서 순서가 꼬였을 때 서버 다운 방지
+        if (!currentPlayer) {
+            return;
+        }
+
+        if (currentPlayer.id !== socket.id) {
+            socket.emit('error_msg', '본인 턴이 아닙니다.');
+            return;
+        }
 
         const trimmedWord = word.trim();
         if (trimmedWord.length < 2) return socket.emit('error_msg', '2글자 이상 입력해주세요.');
@@ -328,28 +340,32 @@ io.on('connection', (socket) => {
             if (index !== -1) {
                 room.players.splice(index, 1);
                 delete room.items[socket.id];
+                
                 if (room.players.length === 0) {
                     if (room.timer) clearInterval(room.timer);
                     delete rooms[roomId];
                 } else {
+                    // 💡 남아있는 사람 수에 맞춰 턴 번호가 배열을 벗어나지 않도록 재조정
                     room.currentTurn = room.currentTurn % room.players.length;
                     
-                    // 💡 4번 수정 반영: 게임 시작 여부 전달
                     io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
                     
                     if (room.isStarted && room.players.length === 1) {
+                        // 게임 진행 중인데 1명만 남은 경우 부전승 처리
                         if (room.timer) clearInterval(room.timer);
                         io.to(roomId).emit('game_over', { winner: room.players[0].nickname + ' (상대방 퇴장)' });
                     } else if (room.isStarted) {
-                        io.to(roomId).emit('turn_changed', {
-                            currentTurnSocketId: room.players[room.currentTurn].id,
-                            currentTurnNickname: room.players[room.currentTurn].nickname,
-                            lastWord: room.lastWord,
-                            message: '누군가 퇴장하여 순서가 조정되었습니다.'
-                        });
-                        
-                        // 💡 5번 수정 반영: 누군가 퇴장했을 때 남은 플레이어를 위해 타이머를 다시 시작
-                        startTurnTimer(roomId); 
+                        const currentPlayer = room.players[room.currentTurn];
+                        if (currentPlayer) {
+                            io.to(roomId).emit('turn_changed', {
+                                currentTurnSocketId: currentPlayer.id,
+                                currentTurnNickname: currentPlayer.nickname,
+                                lastWord: room.lastWord,
+                                message: '누군가 퇴장하여 순서가 조정되었습니다.'
+                            });
+                            // 💡 누군가 퇴장했을 때 남은 플레이어를 위해 타이머를 다시 시작
+                            startTurnTimer(roomId); 
+                        }
                     }
                 }
                 break;
