@@ -98,13 +98,17 @@
         <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 긴 단어: 없음</div>
 
         <div id="lobby">
-            <div class="form-group">
-                <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
-                <input type="text" id="nickname" placeholder="닉네임 입력">
-                <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
-                <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
-            </div>
-        </div>
+    <div class="form-group">
+        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
+        <input type="text" id="nickname" placeholder="닉네임 입력">
+        <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
+        <!-- 2명 이상 모였을 때 방장에게만 보이는 시작 버튼 -->
+        <button id="startGameBtn" onclick="startGame()" style="display: none; background-color: #3b82f6; margin-top: 6px;">🎮 게임 시작</button>
+        <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
+    </div>
+    <!-- 대기 중인 플레이어 목록 표시 -->
+    <div id="playerList" style="margin-top: 15px; font-weight: bold; color: #4b5563;"></div>
+</div>
 
 
         <div id="game-area" class="hidden">
@@ -147,6 +151,42 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
+// 1. 게임 시작 이벤트 전송 함수 추가
+function startGame() {
+    const roomId = document.getElementById('roomId').value;
+    if (!roomId) return alert('방 번호를 입력하세요.');
+    socket.emit('start_game', { roomId });
+}
+
+// 2. 방 인원 업데이트 수신 시 게임 시작 버튼 제어
+socket.on('room_update', ({ players }) => {
+    // 현재 방에 참여 중인 사람 목록 업데이트
+    const playerListEl = document.getElementById('playerList');
+    if (playerListEl) {
+        const names = players.map(p => p.nickname).join(', ');
+        playerListEl.innerText = `현재 대기 인원 (${players.length}/4명): ${names}`;
+    }
+
+    // 2명 이상이고, 내가 첫 번째로 들어온 사람(방장)인 경우 [게임 시작] 버튼 표시
+    const startBtn = document.getElementById('startGameBtn');
+    if (startBtn) {
+        if (players.length >= 2 && players[0].id === socket.id) {
+            startBtn.style.display = 'block';
+        } else {
+            startBtn.style.display = 'none';
+        }
+    }
+});
+
+// 3. 게임 시작 수신 시 로비 숨기고 게임 화면 표시
+socket.on('game_start', ({ players, currentTurnSocketId, currentTurnNickname }) => {
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('game').style.display = 'block';
+    
+    // 플레이어 목록 및 현재 턴 표시 업데이트
+    updatePlayerListUI(players, currentTurnSocketId);
+    document.getElementById('turnInfo').innerText = `현재 턴: ${currentTurnNickname} 님`;
+});
 // 💡 [추가] 컴퓨터 대결 시작 함수
 function startBotGame() {
     const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
