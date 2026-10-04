@@ -257,7 +257,7 @@
 
         socket.on('connect', () => { mySocketId = socket.id; });
 
-     // 사람 대결 입장
+// 사람 대결 입장
 function joinRoom() {
     const roomId = document.getElementById('roomId').value.trim();
     const nickname = document.getElementById('nickname').value.trim();
@@ -270,7 +270,8 @@ function joinRoom() {
     // 로비 숨기고 게임 영역 표시
     document.getElementById('lobby').classList.add('hidden');
     document.getElementById('game-area').classList.remove('hidden');
-    // 대기 중임을 안내하는 메세지 초기화
+    
+    // 대기 안내 메시지 설정
     document.getElementById('status-msg').innerText = "⏳ 다른 플레이어를 기다리는 중입니다...";
 }
 
@@ -300,7 +301,7 @@ function joinRoom() {
             socket.emit('start_game', { roomId: currentRoomId });
         }
 
-       // 방 플레이어 정보 수신
+     // 방 플레이어 정보 수신
 socket.on('room_update', ({ players }) => {
     document.getElementById('player-count').innerText = players.length;
     renderPlayers(players);
@@ -308,7 +309,7 @@ socket.on('room_update', ({ players }) => {
     const startBtn = document.getElementById('start-btn');
     const isHost = players.length > 0 && players[0].id === socket.id;
     
-    // 멀티플레이일 때 대기실 상단 버튼 활성화 안내
+    // 멀티플레이어 대기실 처리
     if (!players.some(p => p.isBot)) {
         if (isHost) {
             startBtn.classList.remove('hidden');
@@ -319,6 +320,19 @@ socket.on('room_update', ({ players }) => {
             document.getElementById('status-msg').innerText = "방장이 게임을 시작할 때까지 대기해주세요.";
         }
     }
+});
+
+// 게임 시작 수신 (핵심: 모든 플레이어의 단어 입력 판 열기)
+socket.on('game_start', ({ players, currentTurnSocketId: turnId, currentTurnNickname }) => {
+    document.getElementById('start-btn').classList.add('hidden');
+    
+    // 🔥 모든 참가자의 단어 입력창 및 게임 플레이 화면을 즉시 표시
+    document.getElementById('game-play').classList.remove('hidden');
+    
+    currentTurnSocketId = turnId;
+    updateTurnUI(currentTurnNickname);
+    renderPlayers(players);
+    showReaction('🔥');
 });
 
 // 게임 시작 수신
