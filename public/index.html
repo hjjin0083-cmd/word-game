@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>실시간 끝말잇기 - 피버 & 기믹 익스트림</title>
-    <!-- 폭죽 연출 라이브러리 추가 -->
+    <title>실시간 끝말잇기 - 유저 ID & 스코어 자동 동기화</title>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
@@ -25,7 +24,6 @@
             transition: border 0.3s ease, box-shadow 0.3s ease;
         }
 
-        /* 🔥 피버 모드 스타일 */
         .container.fever-mode {
             border: 3px solid #ff007f;
             box-shadow: 0 0 25px rgba(255, 0, 127, 0.6), inset 0 0 15px rgba(255, 0, 127, 0.3);
@@ -36,10 +34,7 @@
             to { border-color: #7928ca; box-shadow: 0 0 30px #7928ca; }
         }
 
-        /* 💥 화면 흔들림 효과 */
-        .shake-effect {
-            animation: shakeHard 0.25s ease-in-out;
-        }
+        .shake-effect { animation: shakeHard 0.25s ease-in-out; }
         @keyframes shakeHard {
             0% { transform: translate(0, 0); }
             25% { transform: translate(-6px, 4px); }
@@ -48,11 +43,11 @@
             100% { transform: translate(0, 0); }
         }
 
-        h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 8px; font-weight: 800; }
+        h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 6px; font-weight: 800; }
         
-        .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 12px; text-align: center; font-weight: 600; }
+        .user-id-badge { font-size: 0.72rem; color: #64748b; text-align: center; margin-bottom: 8px; font-family: monospace; }
+        .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 12px; text-align: center; font-weight: 600; line-height: 1.4; }
 
-        /* 🎯 돌발 미션 배너 */
         .mission-banner {
             background: linear-gradient(90deg, #fff7ed, #ffedd5);
             border: 1px solid #fed7aa;
@@ -156,19 +151,22 @@
 
     <div class="container" id="main-container">
         <h2>🎮 실시간 끝말잇기</h2>
+        <div class="user-id-badge" id="user-id-display">ID: 생성 중...</div>
         
-        <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 기록 단어: 없음</div>
+        <div class="stats-badge" id="my-stats">
+            🏆 점수: 0 pt | 전적: 0승 0패<br>🔤 최고 단어: 없음
+        </div>
 
         <div id="lobby">
             <div style="background: rgba(248, 250, 252, 0.9); border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #e2e8f0;">
                 <h3 style="font-size: 0.9rem; color: #475569; margin-bottom: 8px;">🟢 현재 대기 중인 방</h3>
-                <div id="public-rooms" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;">
+                <div id="public-rooms" style="display: flex; flex-direction: column; gap: 8px; max-height: 140px; overflow-y: auto;">
                     <div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 10px;">대기 중인 방이 없습니다.</div>
                 </div>
             </div>
 
             <div class="form-group">
-                <input type="text" id="roomId" placeholder="새 방 만들기 (방 이름 입력)" value="room1">
+                <input type="text" id="roomId" placeholder="방 이름 입력" value="room1">
                 <input type="text" id="nickname" placeholder="닉네임 입력">
                 <button onclick="joinRoom()">👥 방 들어가기 / 만들기</button>
                 <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
@@ -186,9 +184,8 @@
             </div>
 
             <div id="game-play" class="hidden">
-                <!-- 🎯 돌발 미션 표시 -->
                 <div class="mission-banner" id="mission-box">
-                    🎯 [돌발 미션] '<span id="mission-char">바</span>' 포함 단어 입력 시 아이템 획득!
+                    🎯 [돌발 미션] '<span id="mission-char">바</span>' 포함 단어 입력 시 추가 점수 & 아이템!
                 </div>
 
                 <div class="status-bar">
@@ -223,7 +220,7 @@
         </div>
     </div>
 
-    <!-- 결과 팝업 모달 -->
+    <!-- 결과 팝업 -->
     <div id="game-over-modal" class="modal-overlay hidden">
         <div class="modal-card">
             <h3>🏆 게임 종료!</h3>
@@ -238,7 +235,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // HTML 특수문자 이스케이프 (XSS 방지)
         function escapeHtml(str) {
             return String(str)
                 .replace(/&/g, "&amp;")
@@ -247,6 +243,19 @@
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
         }
+
+        // 🆔 고유 유저 ID 생성 및 로드
+        function getOrCreateUserId() {
+            let uid = localStorage.getItem('word_game_user_id');
+            if (!uid) {
+                uid = 'usr_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+                localStorage.setItem('word_game_user_id', uid);
+            }
+            return uid;
+        }
+
+        const userId = getOrCreateUserId();
+        document.getElementById('user-id-display').innerText = `ID: ${userId}`;
 
         const bgm = new Audio('https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3');
         bgm.loop = true;   
@@ -325,7 +334,6 @@
             scene.add(mesh);
             wordBlocks.push(mesh);
 
-            // GPU 메모리 누수 방지 리소스 해제
             if (wordBlocks.length > 20) {
                 const oldMesh = wordBlocks.shift();
                 scene.remove(oldMesh);
@@ -353,29 +361,45 @@
         init3DBackground();
         loadLocalStats();
 
+        // 🏆 유저 ID 기반 데이터 로드
         function loadLocalStats() {
-            const wins = localStorage.getItem('word_wins') || 0;
-            const losses = localStorage.getItem('word_losses') || 0;
-            const longest = localStorage.getItem('word_longest') || '없음';
-            document.getElementById('my-stats').innerText = `🏆 전적: ${wins}승 ${losses}패 | 🔤 최고 기록 단어: ${longest}`;
+            const score = localStorage.getItem(`word_score_${userId}`) || 0;
+            const wins = localStorage.getItem(`word_wins_${userId}`) || 0;
+            const losses = localStorage.getItem(`word_losses_${userId}`) || 0;
+            const longest = localStorage.getItem(`word_longest_${userId}`) || '없음';
+            
+            document.getElementById('my-stats').innerHTML = `🏆 점수: <strong>${score}</strong> pt | 전적: ${wins}승 ${losses}패<br>🔤 최고 기록 단어: ${longest}`;
+
+            // 이전 닉네임 자동 입력
+            const savedNick = localStorage.getItem(`word_nick_${userId}`);
+            if (savedNick) document.getElementById('nickname').value = savedNick;
+        }
+
+        function updateScore(points) {
+            let currentScore = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            currentScore = Math.max(0, currentScore + points);
+            localStorage.setItem(`word_score_${userId}`, currentScore);
+            loadLocalStats();
         }
 
         function updateLongestWord(word) {
             if (!word) return;
-            let currentLongest = localStorage.getItem('word_longest') || '';
+            let currentLongest = localStorage.getItem(`word_longest_${userId}`) || '';
             if (word.length > currentLongest.length) {
-                localStorage.setItem('word_longest', word);
+                localStorage.setItem(`word_longest_${userId}`, word);
                 loadLocalStats();
             }
         }
 
         function saveGameResult(isWin) {
             if (isWin) {
-                let wins = parseInt(localStorage.getItem('word_wins') || 0) + 1;
-                localStorage.setItem('word_wins', wins);
+                let wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0) + 1;
+                localStorage.setItem(`word_wins_${userId}`, wins);
+                updateScore(100); // 승리 보상 점수
             } else {
-                let losses = parseInt(localStorage.getItem('word_losses') || 0) + 1;
-                localStorage.setItem('word_losses', losses);
+                let losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0) + 1;
+                localStorage.setItem(`word_losses_${userId}`, losses);
+                updateScore(-30); // 패배 차감 점수
             }
             loadLocalStats();
         }
@@ -391,7 +415,30 @@
             document.getElementById('mission-char').innerText = currentMissionChar;
         }
 
-        socket.on('connect', () => { mySocketId = socket.id; });
+        // 🔄 자동 재접속(Auto Reconnect) 등록 및 처리
+        socket.on('connect', () => { 
+            mySocketId = socket.id; 
+            
+            // 유저 ID와 소켓 등록
+            const savedNick = localStorage.getItem(`word_nick_${userId}`) || '';
+            socket.emit('register_user', { userId, nickname: savedNick });
+
+            // 이전 방 세션이 남아있을 경우 자동 재접속 시도
+            const activeRoom = sessionStorage.getItem('word_active_room');
+            const isBotSession = sessionStorage.getItem('word_is_bot') === 'true';
+
+            if (activeRoom && savedNick) {
+                currentRoomId = activeRoom;
+                document.getElementById('roomId').value = activeRoom;
+                document.getElementById('nickname').value = savedNick;
+
+                if (isBotSession) {
+                    startBotGame(true);
+                } else {
+                    joinRoom(true);
+                }
+            }
+        });
 
         socket.on('room_list', (rooms) => {
             const container = document.getElementById('public-rooms');
@@ -416,32 +463,42 @@
             document.getElementById('nickname').focus(); 
         }
 
-        function joinRoom() {
+        function joinRoom(isAutoReconnect = false) {
             isBotGame = false;
             const roomId = document.getElementById('roomId').value.trim();
             const nickname = document.getElementById('nickname').value.trim();
             if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
 
+            localStorage.setItem(`word_nick_${userId}`, nickname);
+            sessionStorage.setItem('word_active_room', roomId);
+            sessionStorage.setItem('word_is_bot', 'false');
+
             bgm.play().catch(error => console.log('재생 에러:', error));
             unlockAudio();
             currentRoomId = roomId;
-            socket.emit('join_room', { roomId, nickname });
+
+            socket.emit('join_room', { roomId, nickname, userId, isAutoReconnect });
             
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
             document.getElementById('status-msg').innerText = "⏳ 다른 플레이어를 기다리는 중입니다...";
         }
 
-        function startBotGame() {
+        function startBotGame(isAutoReconnect = false) {
             isBotGame = true;
             const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
             const nickname = document.getElementById('nickname').value.trim();
             if (!nickname) return alert('닉네임을 입력해주세요.');
 
+            localStorage.setItem(`word_nick_${userId}`, nickname);
+            sessionStorage.setItem('word_active_room', roomId);
+            sessionStorage.setItem('word_is_bot', 'true');
+
             bgm.play().catch(error => console.log('재생 에러:', error));
             unlockAudio();
             currentRoomId = roomId;
-            socket.emit('start_bot_game', { roomId, nickname });
+
+            socket.emit('start_bot_game', { roomId, nickname, userId, isAutoReconnect });
 
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
@@ -502,7 +559,7 @@
             }).join('');
         }
         
-        socket.on('turn_changed', ({ currentTurnSocketId: turnId, currentTurnNickname, lastWord, message, combo }) => {
+        socket.on('turn_changed', ({ currentTurnSocketId: turnId, currentTurnNickname, lastWord, message }) => {
             if (message) appendHistory(message, 'system');
             if (lastWord) document.getElementById('current-word').innerText = lastWord;
 
@@ -520,7 +577,6 @@
                 document.getElementById('word-definition').innerHTML = `<strong>[${word}]</strong> ${escapeHtml(definition)}`;
             }
 
-            // 🔥 피버 모드 및 콤보 연출
             const container = document.getElementById('main-container');
             const comboBox = document.getElementById('combo-box');
             if (combo >= 3) {
@@ -538,11 +594,16 @@
                 sndSuccess.playbackRate = 1.0;
             }
 
-            // 🎯 돌발 미션 단어 성공 확인
+            // 단어 성공 시 기본 점수 획득
+            if (socketId === socket.id) {
+                updateScore(10 + (combo * 5));
+            }
+
             if (word.includes(currentMissionChar)) {
                 showReaction('🎯');
                 appendHistory(`🎯 미션 성공! '${currentMissionChar}' 포함 단어 입력`, 'system');
                 confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+                if (socketId === socket.id) updateScore(30);
                 refreshMission();
             }
 
@@ -550,7 +611,10 @@
             triggerShake();
             showReaction(combo > 2 ? '⚡' : '✨'); 
             add3DWordBlock(word);
-            updateLongestWord(word);
+            
+            if (socketId === socket.id) {
+                updateLongestWord(word);
+            }
 
             if (socketId === socket.id && updatedItems) {
                 myItems = updatedItems;
@@ -637,18 +701,11 @@
             }, 2000);
         });
 
-        // 🏆 게임 종료 시 승리 폭죽 연출
         socket.on('game_over', ({ winner }) => {
             sndGameOver.play();
             showReaction('🏆');
             
-            // 승리 폭죽 세레머니
-            confetti({
-                particleCount: 100,
-                spread: 80,
-                origin: { y: 0.6 }
-            });
-
+            confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
             document.getElementById('main-container').classList.remove('fever-mode');
             
             const myNickname = document.getElementById('nickname').value.trim();
@@ -664,7 +721,6 @@
         function rematchGame() {
             document.getElementById('game-over-modal').classList.add('hidden');
             
-            // UI 초기화
             document.getElementById('word-history').innerHTML = '';
             document.getElementById('current-word').innerText = '준비!';
             document.getElementById('word-definition').innerHTML = '📖 단어의 뜻이 여기에 표시됩니다.';
@@ -678,7 +734,7 @@
 
             if (isBotGame) {
                 const nickname = document.getElementById('nickname').value.trim();
-                socket.emit('start_bot_game', { roomId: currentRoomId, nickname });
+                socket.emit('start_bot_game', { roomId: currentRoomId, nickname, userId });
                 refreshMission();
             } else {
                 document.getElementById('game-play').classList.add('hidden');
@@ -688,6 +744,8 @@
         }
 
         function leaveRoom() {
+            sessionStorage.removeItem('word_active_room');
+            sessionStorage.removeItem('word_is_bot');
             document.getElementById('game-over-modal').classList.add('hidden');
             socket.emit('leave_room');
             location.reload(); 
