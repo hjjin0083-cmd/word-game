@@ -59,7 +59,7 @@ async function getBotWord(startChar, usedWords) {
     return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-// 💡 [전체 확장] 모든 두음법칙 변환 함수 (ㄹ, 녀, 뇨, 뉴, 니, 력 등 완벽 적용)
+// 💡 [추가] '량 -> 양' 포함 모든 두음법칙 변환 함수
 function applyDueumRule(char) {
     const dueumMap = {
         // 'ㄹ' 초성 ➔ 'ㄴ' 변환 (라, 래, 로, 뢰, 루, 르 등)
@@ -68,18 +68,18 @@ function applyDueumRule(char) {
         '로': '노', '록': '녹', '론': '논', '롬': '놈', '롯': '놋',
         '뢰': '뇌', '루': '누', '룩': '눅', '룬': '눈', '룸': '눔', '룻': '눗', '룽': '눙',
         '르': '느', '른': '는', '름': '늠', '릉': '능',
-        // 'ㄹ' 초성 ➔ '이' 변환 (랴, 려, 례, 료, 류, 리 등)
+        // 'ㄹ' 초성 ➔ '이' 또는 '양' 변환 ('량' 추가)
         '랴': '야', '려': '여', '력': '역', '련': '년(연)', '렬': '열', '렴': '염', '렵': '엽', '령': '영',
         '례': '예', '료': '요', '룡': '용', '류': '유', '륙': '육', '률': '율', '융': '융', '리': '이', '익': '익',
+        '량': '양', // 💡 '량'이 첫 글자로 올 때 '양'으로 허용
         // 'ㄴ' 초성 ➔ 'ㅇ' 변환 (녀, 뇨, 뉴, 니 등)
         '녀': '여', '녁': '역', '년': '연', '념': '염', '녕': '영',
         '뇨': '요', '뉴': '유', '니': '이'
     };
     
-    // 만약 '년(연)'처럼 표기된 경우 기본 '연'이나 '년'으로 유연하게 매칭되도록 처리
     let mapped = dueumMap[char];
     if (mapped && mapped.includes('(')) {
-        return mapped.split('(')[0]; // 기본 변환 반환
+        return mapped.split('(')[0];
     }
     return mapped || char;
 }
@@ -329,7 +329,7 @@ io.on('connection', (socket) => {
         const trimmedWord = word.trim();
         if (trimmedWord.length < 2) return socket.emit('error_msg', '2글자 이상 입력해주세요.');
         
-        // 💡 [확장된 두음법칙 적용 검증 로직]
+        // 💡 [두음법칙 검증 로직 ('량' 포함)]
         if (room.lastWord) {
             const lastChar = room.lastWord.slice(-1);
             const firstChar = trimmedWord.charAt(0);
