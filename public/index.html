@@ -24,7 +24,6 @@
 
         h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 8px; font-weight: 700; }
         
-        /* 로비 전적 배지 스타일 */
         .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 14px; text-align: center; font-weight: 600; }
 
         .form-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
@@ -56,7 +55,6 @@
         .word-card .label { font-size: 0.8rem; opacity: 0.8; margin-bottom: 4px; }
         .word-card .word { font-size: 2.2rem; font-weight: 800; }
 
-        /* 특수 아이템 인벤토리 슬롯 */
         .item-container { display: flex; gap: 8px; margin-bottom: 12px; }
         .item-btn { flex: 1; padding: 8px; font-size: 0.8rem; background: #e0e7ff; color: #3730a3; border: 1px dashed #6366f1; border-radius: 10px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
         .item-btn:hover { background: #c7d2fe; }
@@ -94,22 +92,16 @@
     <div class="container" id="main-container">
         <h2>🎮 실시간 끝말잇기</h2>
         
-        <!-- 내 전적 배지 (로컬스토리지 저장) -->
-        <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 긴 단어: 없음</div>
+        <div class="stats-badge" id="my-stats">🏆 전적: 0승 0패 | 최고 기록 단어: 없음</div>
 
         <div id="lobby">
-    <div class="form-group">
-        <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
-        <input type="text" id="nickname" placeholder="닉네임 입력">
-        <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
-        <!-- 2명 이상 모였을 때 방장에게만 보이는 시작 버튼 -->
-        <button id="startGameBtn" onclick="startGame()" style="display: none; background-color: #3b82f6; margin-top: 6px;">🎮 게임 시작</button>
-        <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
-    </div>
-    <!-- 대기 중인 플레이어 목록 표시 -->
-    <div id="playerList" style="margin-top: 15px; font-weight: bold; color: #4b5563;"></div>
-</div>
-
+            <div class="form-group">
+                <input type="text" id="roomId" placeholder="방 번호 입력" value="room1">
+                <input type="text" id="nickname" placeholder="닉네임 입력">
+                <button onclick="joinRoom()">👥 다른 사람과 같이하기</button>
+                <button onclick="startBotGame()" style="background-color: #10b981; margin-top: 6px;">🤖 컴퓨터와 대결하기</button>
+            </div>
+        </div>
 
         <div id="game-area" class="hidden">
             <div class="player-section">
@@ -124,7 +116,7 @@
             <div id="game-play" class="hidden">
                 <div class="status-bar">
                     <div id="combo-box" class="combo-badge">🔥 <span id="combo-count">0</span> COMBO!</div>
-                    <div id="timer-box" class="timer-badge">⏳ <span id="time-left">10</span>초</div>
+                    <div id="timer-box" class="timer-badge">⏳ <span id="time-left">20</span>초</div>
                 </div>
 
                 <div class="word-card">
@@ -132,9 +124,8 @@
                     <div class="word" id="current-word">준비!</div>
                 </div>
 
-                <!-- 보유한 특수 아이템 슬롯 -->
                 <div class="item-container" id="item-slots">
-                    <button class="item-btn" disabled>아이템 없음</button>
+                    <button class="item-btn" disabled>보유 아이템 없음</button>
                 </div>
 
                 <div id="word-history"></div>
@@ -151,71 +142,20 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
-// 1. 게임 시작 이벤트 전송 함수 추가
-function startGame() {
-    const roomId = document.getElementById('roomId').value;
-    if (!roomId) return alert('방 번호를 입력하세요.');
-    socket.emit('start_game', { roomId });
-}
-
-// 2. 방 인원 업데이트 수신 시 게임 시작 버튼 제어
-socket.on('room_update', ({ players }) => {
-    // 현재 방에 참여 중인 사람 목록 업데이트
-    const playerListEl = document.getElementById('playerList');
-    if (playerListEl) {
-        const names = players.map(p => p.nickname).join(', ');
-        playerListEl.innerText = `현재 대기 인원 (${players.length}/4명): ${names}`;
-    }
-
-    // 2명 이상이고, 내가 첫 번째로 들어온 사람(방장)인 경우 [게임 시작] 버튼 표시
-    const startBtn = document.getElementById('startGameBtn');
-    if (startBtn) {
-        if (players.length >= 2 && players[0].id === socket.id) {
-            startBtn.style.display = 'block';
-        } else {
-            startBtn.style.display = 'none';
-        }
-    }
-});
-
-// 3. 게임 시작 수신 시 로비 숨기고 게임 화면 표시
-socket.on('game_start', ({ players, currentTurnSocketId, currentTurnNickname }) => {
-    document.getElementById('lobby').style.display = 'none';
-    document.getElementById('game').style.display = 'block';
-    
-    // 플레이어 목록 및 현재 턴 표시 업데이트
-    updatePlayerListUI(players, currentTurnSocketId);
-    document.getElementById('turnInfo').innerText = `현재 턴: ${currentTurnNickname} 님`;
-});
-// 💡 [추가] 컴퓨터 대결 시작 함수
-function startBotGame() {
-    const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
-    const nickname = document.getElementById('nickname').value.trim();
-    if (!nickname) return alert('닉네임을 입력해주세요.');
-
-    if (typeof bgm !== 'undefined') {
-        bgm.play().catch(e => console.log(e));
-    }
-
-    currentRoomId = roomId;
-    socket.emit('start_bot_game', { roomId, nickname });
-
-    document.getElementById('lobby').classList.add('hidden');
-    document.getElementById('game-area').classList.remove('hidden');
-}
+        // 1. 소켓 객체 우선 선언
         const socket = io();
         let mySocketId = '';
         let currentRoomId = '';
         let currentTurnSocketId = '';
         let myItems = [];
 
-        // 효과음 생성 및 피치 변환 연출 함수
+        // 효과음 객체
         const sndSuccess = new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg');
         const sndMyTurn = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
         const sndError = new Audio('https://actions.google.com/sounds/v1/alarms/buzzer_alarm.ogg');
         const sndGameOver = new Audio('https://actions.google.com/sounds/v1/human_voices/crowd_cheer.ogg');
 
-        // Three.js 전역 변수
+        // Three.js 배경 애니메이션
         let scene, camera, renderer;
         const wordBlocks = [];
 
@@ -290,7 +230,6 @@ function startBotGame() {
         init3DBackground();
         loadLocalStats();
 
-        // 💡 [전적/칭호 로컬스토리지 불러오기]
         function loadLocalStats() {
             const wins = localStorage.getItem('word_wins') || 0;
             const losses = localStorage.getItem('word_losses') || 0;
@@ -318,32 +257,55 @@ function startBotGame() {
 
         socket.on('connect', () => { mySocketId = socket.id; });
 
+        // 사람 대결 입장
         function joinRoom() {
             const roomId = document.getElementById('roomId').value.trim();
             const nickname = document.getElementById('nickname').value.trim();
             if (!roomId || !nickname) return alert('방 번호와 닉네임을 입력하세요.');
 
-            [sndSuccess, sndMyTurn, sndError, sndGameOver].forEach(snd => {
-                const p = snd.play();
-                if (p !== undefined) p.then(() => { snd.pause(); snd.currentTime = 0; }).catch(() => {});
-            });
-
+            unlockAudio();
             currentRoomId = roomId;
             socket.emit('join_room', { roomId, nickname });
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
         }
 
+        // 컴퓨터 대결 시작
+        function startBotGame() {
+            const roomId = document.getElementById('roomId').value.trim() || 'bot-room';
+            const nickname = document.getElementById('nickname').value.trim();
+            if (!nickname) return alert('닉네임을 입력해주세요.');
+
+            unlockAudio();
+            currentRoomId = roomId;
+            socket.emit('start_bot_game', { roomId, nickname });
+
+            document.getElementById('lobby').classList.add('hidden');
+            document.getElementById('game-area').classList.remove('hidden');
+            document.getElementById('game-play').classList.remove('hidden');
+        }
+
+        function unlockAudio() {
+            [sndSuccess, sndMyTurn, sndError, sndGameOver].forEach(snd => {
+                const p = snd.play();
+                if (p !== undefined) p.then(() => { snd.pause(); snd.currentTime = 0; }).catch(() => {});
+            });
+        }
+
         function requestStartGame() {
             socket.emit('start_game', { roomId: currentRoomId });
         }
 
+        // 방 플레이어 정보 수신
         socket.on('room_update', ({ players }) => {
             document.getElementById('player-count').innerText = players.length;
             renderPlayers(players);
+
             const startBtn = document.getElementById('start-btn');
             const isHost = players.length > 0 && players[0].id === socket.id;
-            if (isHost) {
+            
+            // 멀티플레이 방장일 때만 [게임 시작하기] 버튼 표시
+            if (isHost && !players.some(p => p.isBot)) {
                 startBtn.classList.remove('hidden');
                 startBtn.disabled = players.length < 2;
                 startBtn.innerText = players.length >= 2 ? "🚀 게임 시작하기!" : "2명 이상 대기 중...";
@@ -361,6 +323,7 @@ function startBotGame() {
             }).join('');
         }
 
+        // 게임 시작 수신
         socket.on('game_start', ({ players, currentTurnSocketId: turnId, currentTurnNickname }) => {
             document.getElementById('start-btn').classList.add('hidden');
             document.getElementById('game-play').classList.remove('hidden');
@@ -370,6 +333,7 @@ function startBotGame() {
             showReaction('🔥');
         });
 
+        // 턴 변경 수신
         socket.on('turn_changed', ({ currentTurnSocketId: turnId, currentTurnNickname, lastWord, message, combo }) => {
             if (message) appendHistory(message, 'system');
             if (lastWord) document.getElementById('current-word').innerText = lastWord;
@@ -379,17 +343,16 @@ function startBotGame() {
             socket.emit('get_room_info', { roomId: currentRoomId });
         });
 
+        // 단어 수락 수신
         socket.on('word_accepted', ({ word, nickname, combo, earnedItem, myItems: updatedItems, socketId }) => {
             appendHistory(`✅ ${nickname}: ${word}`);
             document.getElementById('current-word').innerText = word;
             document.getElementById('word-input').value = '';
 
-            // 💡 [콤보 UI 및 사운드 피치 증가 연출]
             const comboBox = document.getElementById('combo-box');
             if (combo > 1) {
                 comboBox.style.display = 'block';
                 document.getElementById('combo-count').innerText = combo;
-                // 콤보 상승 시 효과음 피치(속도) 상승
                 sndSuccess.playbackRate = Math.min(1.0 + (combo * 0.15), 2.0); 
             } else {
                 comboBox.style.display = 'none';
@@ -399,11 +362,8 @@ function startBotGame() {
             sndSuccess.play();
             showReaction(combo > 2 ? '⚡' : '✨'); 
             add3DWordBlock(word);
-
-            // 긴 단어 기록 업데이트
             saveGameResult(false, word);
 
-            // 아이템 획득 알림
             if (socketId === socket.id && updatedItems) {
                 myItems = updatedItems;
                 renderItemSlots();
@@ -413,7 +373,6 @@ function startBotGame() {
             }
         });
 
-        // 💡 [아이템 슬롯 UI 렌더링]
         function renderItemSlots() {
             const container = document.getElementById('item-slots');
             if (myItems.length === 0) {
@@ -448,7 +407,7 @@ function startBotGame() {
             
             if (bonusTime > 0 && currentPlayerId === socket.id) {
                 timerBox.classList.add('bonus');
-                appendHistory(`⏳ 4글자 보너스 시간 +${bonusTime}초 적용!`, 'system');
+                appendHistory(`⏳ 보너스 시간 +${bonusTime}초 적용!`, 'system');
             } else {
                 timerBox.classList.remove('bonus');
             }
@@ -466,7 +425,12 @@ function startBotGame() {
             const status = document.getElementById('status-msg');
             status.style.color = "red";
             status.innerText = msg;
-            setTimeout(() => status.innerText = "🎯 당신의 턴입니다!", 2000);
+            setTimeout(() => {
+                if (currentTurnSocketId === socket.id) {
+                    status.style.color = "#6366f1";
+                    status.innerText = "🎯 당신의 턴입니다!";
+                }
+            }, 2000);
         });
 
         socket.on('game_over', ({ winner }) => {
