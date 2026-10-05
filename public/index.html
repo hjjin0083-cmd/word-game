@@ -43,8 +43,12 @@
             100% { transform: translate(0, 0); }
         }
 
-        h2 { font-size: 1.4rem; text-align: center; color: #0f172a; margin-bottom: 6px; font-weight: 800; }
+        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        h2 { font-size: 1.4rem; color: #0f172a; font-weight: 800; margin-bottom: 0; }
         
+        .mute-btn { width: auto !important; padding: 6px 12px !important; font-size: 0.8rem !important; font-weight: 600; background: #e2e8f0; color: #475569; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .mute-btn.muted { background: #fee2e2 !important; color: #ef4444 !important; }
+
         .user-id-badge { font-size: 0.72rem; color: #64748b; text-align: center; margin-bottom: 8px; font-family: monospace; }
         .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 12px; text-align: center; font-weight: 600; line-height: 1.4; }
 
@@ -150,7 +154,10 @@
     <canvas id="bg-canvas"></canvas>
 
     <div class="container" id="main-container">
-        <h2>🎮 실시간 끝말잇기</h2>
+        <div class="header-row">
+            <h2>🎮 실시간 끝말잇기</h2>
+            <button id="mute-btn" class="mute-btn" onclick="toggleMute()">🔊 소리 켜짐</button>
+        </div>
         <div class="user-id-badge" id="user-id-display">ID: 생성 중...</div>
         
         <div class="stats-badge" id="my-stats">
@@ -244,7 +251,7 @@
                 .replace(/'/g, "&#039;");
         }
 
-        // 🆔 고유 유저 ID 생성 및 로드
+        // 고유 유저 ID 생성 및 로드
         function getOrCreateUserId() {
             let uid = localStorage.getItem('word_game_user_id');
             if (!uid) {
@@ -261,6 +268,30 @@
         bgm.loop = true;   
         bgm.volume = 0.2;  
 
+        const sndSuccess = new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg');
+        const sndMyTurn = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
+        const sndError = new Audio('https://actions.google.com/sounds/v1/alarms/buzzer_alarm.ogg');
+        const sndGameOver = new Audio('https://actions.google.com/sounds/v1/human_voices/crowd_cheer.ogg');
+
+        let isMuted = false;
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            bgm.muted = isMuted;
+            
+            const soundEffects = [sndSuccess, sndMyTurn, sndError, sndGameOver];
+            soundEffects.forEach(snd => snd.muted = isMuted);
+
+            const muteBtn = document.getElementById('mute-btn');
+            if (isMuted) {
+                muteBtn.innerText = '🔇 음소거 됨';
+                muteBtn.classList.add('muted');
+            } else {
+                muteBtn.innerText = '🔊 소리 켜짐';
+                muteBtn.classList.remove('muted');
+            }
+        }
+
         const socket = io();
         let mySocketId = '';
         let currentRoomId = '';
@@ -270,11 +301,6 @@
         let currentMissionChar = '바';
 
         const missionChars = ['바', '가', '나', '마', '라', '자', '사', '하', '구', '수'];
-
-        const sndSuccess = new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg');
-        const sndMyTurn = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
-        const sndError = new Audio('https://actions.google.com/sounds/v1/alarms/buzzer_alarm.ogg');
-        const sndGameOver = new Audio('https://actions.google.com/sounds/v1/human_voices/crowd_cheer.ogg');
 
         let scene, camera, renderer;
         const wordBlocks = [];
@@ -361,7 +387,6 @@
         init3DBackground();
         loadLocalStats();
 
-        // 🏆 유저 ID 기반 데이터 로드
         function loadLocalStats() {
             const score = localStorage.getItem(`word_score_${userId}`) || 0;
             const wins = localStorage.getItem(`word_wins_${userId}`) || 0;
@@ -370,7 +395,6 @@
             
             document.getElementById('my-stats').innerHTML = `🏆 점수: <strong>${score}</strong> pt | 전적: ${wins}승 ${losses}패<br>🔤 최고 기록 단어: ${longest}`;
 
-            // 이전 닉네임 자동 입력
             const savedNick = localStorage.getItem(`word_nick_${userId}`);
             if (savedNick) document.getElementById('nickname').value = savedNick;
         }
@@ -395,11 +419,11 @@
             if (isWin) {
                 let wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0) + 1;
                 localStorage.setItem(`word_wins_${userId}`, wins);
-                updateScore(100); // 승리 보상 점수
+                updateScore(100);
             } else {
                 let losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0) + 1;
                 localStorage.setItem(`word_losses_${userId}`, losses);
-                updateScore(-30); // 패배 차감 점수
+                updateScore(-30);
             }
             loadLocalStats();
         }
@@ -415,15 +439,12 @@
             document.getElementById('mission-char').innerText = currentMissionChar;
         }
 
-        // 🔄 자동 재접속(Auto Reconnect) 등록 및 처리
         socket.on('connect', () => { 
             mySocketId = socket.id; 
             
-            // 유저 ID와 소켓 등록
             const savedNick = localStorage.getItem(`word_nick_${userId}`) || '';
             socket.emit('register_user', { userId, nickname: savedNick });
 
-            // 이전 방 세션이 남아있을 경우 자동 재접속 시도
             const activeRoom = sessionStorage.getItem('word_active_room');
             const isBotSession = sessionStorage.getItem('word_is_bot') === 'true';
 
@@ -594,7 +615,6 @@
                 sndSuccess.playbackRate = 1.0;
             }
 
-            // 단어 성공 시 기본 점수 획득
             if (socketId === socket.id) {
                 updateScore(10 + (combo * 5));
             }
@@ -620,7 +640,7 @@
                 myItems = updatedItems;
                 renderItemSlots();
                 if (earnedItem) {
-                    appendHistory(`🎁 아이템 획득! [${earnedItem}]`, 'system');
+                    appendHistory(`🎁 아이템 획득! [${earnedItem === 'CHANGE_CHAR' ? '제시어 변경' : earnedItem}]`, 'system');
                 }
             }
         });
@@ -630,7 +650,7 @@
                 return alert('본인 턴에만 힌트를 사용할 수 있습니다!');
             }
             const currentWord = document.getElementById('current-word').innerText;
-            const lastChar = currentWord.slice(-1);
+            const lastChar = currentWord === '준비!' ? '가' : currentWord.slice(-1);
             
             const status = document.getElementById('status-msg');
             status.style.color = "#d97706";
@@ -646,7 +666,7 @@
             container.innerHTML = myItems.map(item => {
                 let label = '🎲 아이템';
                 if (item === 'SKIP') label = '⚡ 턴 건너뛰기';
-                else if (item === 'CHANGE') label = '🎲 제시어 변경';
+                else if (item === 'CHANGE_CHAR' || item === 'CHANGE') label = '🎲 제시어 변경';
                 else if (item === 'ATTACK') label = '⏱️ 시간 차감 (-5초)';
                 return `<button class="item-btn" onclick="useItem('${item}')">${label}</button>`;
             }).join('');

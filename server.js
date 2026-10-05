@@ -10,7 +10,24 @@ app.use(express.static('public'));
 
 const rooms = {};
 
-// 대기 중인 방 목록을 추려내는 함수
+// 컴퓨터 기본 백업 단어집 (API 통신 불가 시 사용)
+const fallbackBotWords = {
+    '가': ['가방', '가수', '가구', '가을', '가면', '가재', '가게', '가을', '가정'],
+    '나': ['나비', '나무', '나팔', '나침반', '나이', '나비', '나물'],
+    '다': ['다람쥐', '다리', '다리미', '다이아몬드', '다방'],
+    '라': ['라면', '라디오', '라이터', '라일락', '라마'],
+    '마': ['마늘', '마술', '마을', '마이크', '마스크', '마차'],
+    '바': ['바다', '바나나', '바람', '바위', '바구니', '바지'],
+    '사': ['사자', '사과', '사람', '사탕', '사슴', '사다리'],
+    '아': ['안경', '아기', '아이스크림', '아버지', '아침', '아파트'],
+    '자': ['자전거', '자동차', '자석', '자두', '자유', '자라'],
+    '차': ['차량', '차표', '차나무', '차창'],
+    '카': ['카메라', '카드', '카레', '카누', '카카오'],
+    '타': ['타이어', '타조', '타올', '타석'],
+    '파': ['파도', '파인애플', '파리', '파이프', '파랑'],
+    '하': ['하늘', '하마', '하모니카', '하프', '하수구']
+};
+
 function getWaitingRooms() {
     const roomList = [];
     for (const [roomId, room] of Object.entries(rooms)) {
@@ -29,16 +46,18 @@ function getWaitingRooms() {
 async function checkWordInDictionary(word) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
     if (!apiKey || apiKey === '여기에_발급받은_API_키를_넣으세요') {
-        return { exists: true, definition: '테스트 모드입니다.' }; 
+        return { exists: true, definition: '테스트 모드 단어입니다.' }; 
     }
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(word)}&advanced=y&method=exact&pos=1`;
     try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error('API Response Error');
+        
         const xmlText = await response.text();
         const matchTotal = xmlText.match(/<total>(\d+)<\/total>/);
         const exists = matchTotal && parseInt(matchTotal[1]) > 0;
         
-        let definition = '뜻을 찾을 수 없습니다.';
+        let definition = '단어의 뜻 정보를 불러왔습니다.';
         if (exists) {
             const defMatch = xmlText.match(/<definition>(.*?)<\/definition>/);
             if (defMatch) {
@@ -47,15 +66,14 @@ async function checkWordInDictionary(word) {
         }
         return { exists, definition };
     } catch (error) {
-        console.error('사전 통신 에러:', error);
-        return { exists: false, definition: '' }; 
+        console.error('사전 통신 에러 (기본 정상 처리로 전환):', error);
+        return { exists: true, definition: '사전 연결 상태 확인 중입니다.' }; 
     }
 }
 
 // 컴퓨터 전용 단어 검색 함수
 async function getBotWord(startChar, usedWords) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA';
-    
     const searchChars = [startChar];
     const converted = applyDueumRule(startChar);
     if (converted !== startChar) {
@@ -67,14 +85,25 @@ async function getBotWord(startChar, usedWords) {
         const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(char)}&advanced=y&method=start&pos=1&num=20`;
         try {
             const response = await fetch(url);
-            const xmlText = await response.text();
-            const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
-            const words = matches
-                .map(m => m.replace(/<\/?word>/g, '').trim())
-                .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
-            candidates = candidates.concat(words);
+            if (response.ok) {
+                const xmlText = await response.text();
+                const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
+                const words = matches
+                    .map(m => m.replace(/<\/?word>/g, '').trim())
+                    .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
+                candidates = candidates.concat(words);
+            }
         } catch (error) {
             console.error('컴퓨터 단어 검색 에러:', error);
+        }
+    }
+
+    // API 통신 결과가 없으면 내장 백업 단어집에서 추출
+    if (candidates.length === 0) {
+        for (const char of searchChars) {
+            const fallbackList = fallbackBotWords[char] || [];
+            const available = fallbackList.filter(w => !usedWords.has(w));
+            candidates = candidates.concat(available);
         }
     }
 
@@ -261,6 +290,11 @@ function handleBotTurn(roomId) {
 
 io.on('connection', (socket) => {
     socket.emit('room_list', getWaitingRooms());
+
+    socket.on('register_user', ({ userId, nickname }) => {
+        socket.userId = userId;
+        socket.nickname = nickname;
+    });
 
     socket.on('join_room', ({ roomId, nickname }) => {
         removePlayerFromAllRooms(socket);
@@ -454,7 +488,6 @@ io.on('connection', (socket) => {
         socket.emit('update_my_items', { items: userItems });
     });
 
-    // 💡 클라이언트에서 explicit 방 나가기 요청
     socket.on('leave_room', () => {
         removePlayerFromAllRooms(socket);
         io.emit('room_list', getWaitingRooms());
