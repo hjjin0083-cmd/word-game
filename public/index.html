@@ -7,7 +7,20 @@
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
-        body { background-color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 12px; overflow: hidden; position: relative; }
+        
+        /* 모바일 키보드 가림 및 스크롤 문제 보완 */
+        body { 
+            background-color: #f1f5f9; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            min-height: -webkit-fill-available;
+            padding: 12px; 
+            overflow-x: hidden;
+            overflow-y: auto; 
+            position: relative; 
+        }
         
         #bg-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
 
@@ -21,6 +34,7 @@
             max-width: 440px; 
             position: relative; 
             z-index: 10; 
+            margin: auto 0;
             transition: border 0.3s ease, box-shadow 0.3s ease;
         }
 
@@ -271,6 +285,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
+        // 모바일 가상 키보드 대응 자동 스크롤
+        document.addEventListener('DOMContentLoaded', () => {
+            const inputs = document.querySelectorAll('input[type="text"]');
+            inputs.forEach(input => {
+                input.addEventListener('focus', (e) => {
+                    setTimeout(() => {
+                        e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 300);
+                });
+            });
+        });
+
         function escapeHtml(str) {
             if (!str) return '';
             return String(str)
