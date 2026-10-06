@@ -10,13 +10,42 @@ app.use(express.static('public'));
 
 const rooms = {};
 
+// 랭킹 시스템 전용 유저 점수 데이터 베이스 (메모리 저장)
+const userScores = {}; // { [userIdKey]: { nickname: string, score: number } }
+
+// 상위 5명 랭킹 추출 함수
+function getTopRankings() {
+    return Object.values(userScores)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+}
+
+// 전체 클라이언트에 랭킹 정보 브로드캐스트
+function broadcastRankings() {
+    const topRankings = getTopRankings();
+    io.emit('update_rankings', topRankings);
+}
+
+// 점수 업데이트 함수
+function addPlayerScore(userKey, nickname, points) {
+    if (!userKey) return;
+    if (!userScores[userKey]) {
+        userScores[userKey] = { nickname: nickname, score: 0 };
+    }
+    userScores[userKey].score += points;
+    userScores[userKey].nickname = nickname; // 닉네임 최신화
+    
+    // 점수 변경 시 실시간 브로드캐스트
+    broadcastRankings();
+}
+
 // 컴퓨터 기본 백업 단어집 (API 통신 불가 시 사용)
 const fallbackBotWords = {
     '가': ['가방', '가수', '가구', '가을', '가면', '가재', '가게', '가을', '가정'],
     '나': ['나비', '나무', '나팔', '나침반', '나이', '나비', '나물'],
     '다': ['다람쥐', '다리', '다리미', '다이아몬드', '다방'],
     '라': ['라면', '라디오', '라이터', '라일락', '라마'],
-    '마': ['마늘', '마술', '마을', '마이크', '마스크', '마차'],
+    '마': ['마늘', '마술', '마이크', '마스크', '마차'],
     '바': ['바다', '바나나', '바람', '바위', '바구니', '바지'],
     '사': ['사자', '사과', '사람', '사탕', '사슴', '사다리'],
     '아': ['안경', '아기', '아이스크림', '아버지', '아침', '아파트'],
@@ -98,7 +127,6 @@ async function getBotWord(startChar, usedWords) {
         }
     }
 
-    // API 통신 결과가 없으면 내장 백업 단어집에서 추출
     if (candidates.length === 0) {
         for (const char of searchChars) {
             const fallbackList = fallbackBotWords[char] || [];
@@ -223,8 +251,15 @@ function nextTurn(roomId, systemMessage = '') {
     
     if (alivePlayers.length <= 1) {
         clearInterval(room.timer);
-        io.to(roomId).emit('game_over', { winner: alivePlayers[0]?.nickname || '없음' });
+        const winner = alivePlayers[0];
+        io.to(roomId).emit('game_over', { winner: winner?.nickname || '없음' });
         
+        // 승자 승리 보너스 점수 50점 지급
+        if (winner && !winner.isBot) {
+            const userKey = winner.userId || winner.id;
+            addPlayerScore(userKey, winner.nickname, 50);
+        }
+
         room.isStarted = false;
         room.usedWords.clear();
         room.lastWord = '';
@@ -290,10 +325,25 @@ function handleBotTurn(roomId) {
 
 io.on('connection', (socket) => {
     socket.emit('room_list', getWaitingRooms());
+    
+    // 신규 접속자에게 현재 랭킹 전송
+    socket.emit('update_rankings', getTopRankings());
 
     socket.on('register_user', ({ userId, nickname }) => {
         socket.userId = userId;
         socket.nickname = nickname;
+
+        const userKey = userId || socket.id;
+        if (!userScores[userKey]) {
+            userScores[userKey] = { nickname: nickname, score: 0 };
+        } else {
+            userScores[userKey].nickname = nickname;
+        }
+        broadcastRankings();
+    });
+
+    socket.on('get_rankings', () => {
+        socket.emit('update_rankings', getTopRankings());
     });
 
     socket.on('join_room', ({ roomId, nickname }) => {
@@ -312,7 +362,7 @@ io.on('connection', (socket) => {
         if (room.isStarted) return socket.emit('error_msg', '이미 게임이 진행 중입니다.');
         if (room.players.length >= 4) return socket.emit('error_msg', '방이 가득 찼습니다.');
 
-        room.players.push({ id: socket.id, nickname, isAlive: true });
+        room.players.push({ id: socket.id, userId: socket.userId, nickname, isAlive: true });
         room.items[socket.id] = [];
         
         io.to(roomId).emit('room_update', { players: room.players, isStarted: room.isStarted });
@@ -326,7 +376,7 @@ io.on('connection', (socket) => {
         
         rooms[roomId] = {
             players: [
-                { id: socket.id, nickname: nickname, isAlive: true },
+                { id: socket.id, userId: socket.userId, nickname: nickname, isAlive: true },
                 { id: 'BOT_PLAYER', nickname: '🤖 알파고', isAlive: true, isBot: true }
             ],
             currentTurn: 0,
@@ -421,6 +471,11 @@ io.on('connection', (socket) => {
             room.combo = 1;
         }
         room.lastWordTime = now;
+
+        // 점수 획득 로직: (단어 글자 수 * 10점) + (콤보 보너스 * 5점)
+        const earnedPoints = (trimmedWord.length * 10) + (room.combo * 5);
+        const userKey = socket.userId || socket.id;
+        addPlayerScore(userKey, currentPlayer.nickname, earnedPoints);
 
         let earnedItem = null;
         if (trimmedWord.length >= 4) {

@@ -52,6 +52,24 @@
         .user-id-badge { font-size: 0.72rem; color: #64748b; text-align: center; margin-bottom: 8px; font-family: monospace; }
         .stats-badge { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 8px 12px; font-size: 0.8rem; color: #3730a3; margin-bottom: 12px; text-align: center; font-weight: 600; line-height: 1.4; }
 
+        /* 랭킹 보드 스타일 */
+        .ranking-box {
+            background: rgba(248, 250, 252, 0.9);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 12px;
+            max-height: 130px;
+            overflow-y: auto;
+        }
+        .ranking-title { font-size: 0.85rem; color: #475569; font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .ranking-item { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; padding: 4px 8px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+        .ranking-item:last-child { border-bottom: none; }
+        .ranking-rank { font-weight: 800; width: 24px; color: #6366f1; }
+        .ranking-rank.top-1 { color: #f59e0b; }
+        .ranking-rank.top-2 { color: #94a3b8; }
+        .ranking-rank.top-3 { color: #b45309; }
+
         .mission-banner {
             background: linear-gradient(90deg, #fff7ed, #ffedd5);
             border: 1px solid #fed7aa;
@@ -164,10 +182,21 @@
             🏆 점수: 0 pt | 전적: 0승 0패<br>🔤 최고 단어: 없음
         </div>
 
+        <!-- 🏆 실시간 유저 랭킹 보드 -->
+        <div class="ranking-box">
+            <div class="ranking-title">
+                <span>👑 실시간 유저 랭킹 TOP 5</span>
+                <span style="font-size: 0.75rem; color: #6366f1; font-weight: 600;">LIVE</span>
+            </div>
+            <div id="ranking-list">
+                <div style="font-size: 0.8rem; color: #94a3b8; text-align: center; padding: 6px;">랭킹 불러오는 중...</div>
+            </div>
+        </div>
+
         <div id="lobby">
             <div style="background: rgba(248, 250, 252, 0.9); border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #e2e8f0;">
                 <h3 style="font-size: 0.9rem; color: #475569; margin-bottom: 8px;">🟢 현재 대기 중인 방</h3>
-                <div id="public-rooms" style="display: flex; flex-direction: column; gap: 8px; max-height: 140px; overflow-y: auto;">
+                <div id="public-rooms" style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;">
                     <div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 10px;">대기 중인 방이 없습니다.</div>
                 </div>
             </div>
@@ -388,7 +417,7 @@
         loadLocalStats();
 
         function loadLocalStats() {
-            const score = localStorage.getItem(`word_score_${userId}`) || 0;
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
             const wins = localStorage.getItem(`word_wins_${userId}`) || 0;
             const losses = localStorage.getItem(`word_losses_${userId}`) || 0;
             const longest = localStorage.getItem(`word_longest_${userId}`) || '없음';
@@ -397,6 +426,11 @@
 
             const savedNick = localStorage.getItem(`word_nick_${userId}`);
             if (savedNick) document.getElementById('nickname').value = savedNick;
+
+            // 서버로 점수 동기화 업데이트 전송
+            if (socket.connected) {
+                socket.emit('update_score', { userId, nickname: savedNick || '익명', score, wins, losses });
+            }
         }
 
         function updateScore(points) {
@@ -443,7 +477,11 @@
             mySocketId = socket.id; 
             
             const savedNick = localStorage.getItem(`word_nick_${userId}`) || '';
-            socket.emit('register_user', { userId, nickname: savedNick });
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            const wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0);
+            const losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0);
+
+            socket.emit('register_user', { userId, nickname: savedNick, score, wins, losses });
 
             const activeRoom = sessionStorage.getItem('word_active_room');
             const isBotSession = sessionStorage.getItem('word_is_bot') === 'true';
@@ -459,6 +497,34 @@
                     joinRoom(true);
                 }
             }
+        });
+
+        // 🏆 서버로부터 실시간 랭킹 데이터 수신
+        socket.on('leaderboard_update', (rankings) => {
+            const container = document.getElementById('ranking-list');
+            if (!container) return;
+
+            if (!rankings || rankings.length === 0) {
+                container.innerHTML = '<div style="font-size: 0.8rem; color: #94a3b8; text-align: center; padding: 6px;">등록된 랭킹이 없습니다.</div>';
+                return;
+            }
+
+            container.innerHTML = rankings.map((user, index) => {
+                const rankNum = index + 1;
+                let rankClass = '';
+                if (rankNum === 1) rankClass = 'top-1';
+                else if (rankNum === 2) rankClass = 'top-2';
+                else if (rankNum === 3) rankClass = 'top-3';
+
+                const safeNick = escapeHtml(user.nickname || '익명');
+                const isMe = user.userId === userId ? ' (나)' : '';
+
+                return `<div class="ranking-item">
+                    <span class="ranking-rank ${rankClass}">${rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : rankNum + '위'}</span>
+                    <span style="flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: ${user.userId === userId ? '700' : '500'};">${safeNick}${isMe}</span>
+                    <span style="font-weight: 700; color: #4338ca;">${user.score} pt</span>
+                </div>`;
+            }).join('');
         });
 
         socket.on('room_list', (rooms) => {
@@ -498,7 +564,8 @@
             unlockAudio();
             currentRoomId = roomId;
 
-            socket.emit('join_room', { roomId, nickname, userId, isAutoReconnect });
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            socket.emit('join_room', { roomId, nickname, userId, score, isAutoReconnect });
             
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
@@ -519,7 +586,8 @@
             unlockAudio();
             currentRoomId = roomId;
 
-            socket.emit('start_bot_game', { roomId, nickname, userId, isAutoReconnect });
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            socket.emit('start_bot_game', { roomId, nickname, userId, score, isAutoReconnect });
 
             document.getElementById('lobby').classList.add('hidden');
             document.getElementById('game-area').classList.remove('hidden');
@@ -667,7 +735,7 @@
                 let label = '🎲 아이템';
                 if (item === 'SKIP') label = '⚡ 턴 건너뛰기';
                 else if (item === 'CHANGE_CHAR' || item === 'CHANGE') label = '🎲 제시어 변경';
-                else if (item === 'ATTACK') label = '⏱️ 시간 차감 (-5초)';
+                else if (item === 'ATTACK') label = '⏱️️ 시간 차감 (-5초)';
                 return `<button class="item-btn" onclick="useItem('${item}')">${label}</button>`;
             }).join('');
         }
