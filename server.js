@@ -11,7 +11,7 @@ app.use(express.static('public'));
 const rooms = {};
 
 // 랭킹 시스템 전용 유저 점수 데이터 베이스 (메모리 저장)
-const userScores = {}; // { [userIdKey]: { nickname: string, score: number } }
+const userScores = {}; // { [userIdKey]: { userId: string, nickname: string, score: number } }
 
 // 상위 5명 랭킹 추출 함수
 function getTopRankings() {
@@ -24,25 +24,25 @@ function getTopRankings() {
 function broadcastRankings() {
     const topRankings = getTopRankings();
     io.emit('update_rankings', topRankings);
+    io.emit('leaderboard_update', topRankings); // 호환성을 위한 하위 호환 이벤트
 }
 
 // 점수 업데이트 함수
 function addPlayerScore(userKey, nickname, points) {
     if (!userKey) return;
     if (!userScores[userKey]) {
-        userScores[userKey] = { nickname: nickname, score: 0 };
+        userScores[userKey] = { userId: userKey, nickname: nickname, score: 0 };
     }
-    userScores[userKey].score += points;
-    userScores[userKey].nickname = nickname; // 닉네임 최신화
+    userScores[userKey].score = Math.max(0, userScores[userKey].score + points);
+    if (nickname) userScores[userKey].nickname = nickname; // 닉네임 최신화
     
-    // 점수 변경 시 실시간 브로드캐스트
     broadcastRankings();
 }
 
 // 컴퓨터 기본 백업 단어집 (API 통신 불가 시 사용)
 const fallbackBotWords = {
-    '가': ['가방', '가수', '가구', '가을', '가면', '가재', '가게', '가을', '가정'],
-    '나': ['나비', '나무', '나팔', '나침반', '나이', '나비', '나물'],
+    '가': ['가방', '가수', '가구', '가을', '가면', '가재', '가게', '가정'],
+    '나': ['나비', '나무', '나팔', '나침반', '나이', '나물'],
     '다': ['다람쥐', '다리', '다리미', '다이아몬드', '다방'],
     '라': ['라면', '라디오', '라이터', '라일락', '라마'],
     '마': ['마늘', '마술', '마이크', '마스크', '마차'],
@@ -325,19 +325,31 @@ function handleBotTurn(roomId) {
 
 io.on('connection', (socket) => {
     socket.emit('room_list', getWaitingRooms());
-    
-    // 신규 접속자에게 현재 랭킹 전송
     socket.emit('update_rankings', getTopRankings());
 
-    socket.on('register_user', ({ userId, nickname }) => {
+    socket.on('register_user', ({ userId, nickname, score }) => {
         socket.userId = userId;
         socket.nickname = nickname;
 
         const userKey = userId || socket.id;
         if (!userScores[userKey]) {
-            userScores[userKey] = { nickname: nickname, score: 0 };
+            userScores[userKey] = { userId: userKey, nickname: nickname || '익명', score: score || 0 };
         } else {
-            userScores[userKey].nickname = nickname;
+            userScores[userKey].nickname = nickname || userScores[userKey].nickname;
+            if (typeof score === 'number' && score > userScores[userKey].score) {
+                userScores[userKey].score = score;
+            }
+        }
+        broadcastRankings();
+    });
+
+    socket.on('update_score', ({ userId, nickname, score }) => {
+        const userKey = userId || socket.userId || socket.id;
+        if (!userScores[userKey]) {
+            userScores[userKey] = { userId: userKey, nickname: nickname || '익명', score: score || 0 };
+        } else {
+            if (nickname) userScores[userKey].nickname = nickname;
+            if (typeof score === 'number') userScores[userKey].score = score;
         }
         broadcastRankings();
     });
@@ -346,7 +358,10 @@ io.on('connection', (socket) => {
         socket.emit('update_rankings', getTopRankings());
     });
 
-    socket.on('join_room', ({ roomId, nickname }) => {
+    socket.on('join_room', ({ roomId, nickname, userId }) => {
+        if (userId) socket.userId = userId;
+        if (nickname) socket.nickname = nickname;
+
         removePlayerFromAllRooms(socket);
         
         socket.join(roomId);
@@ -369,7 +384,10 @@ io.on('connection', (socket) => {
         io.emit('room_list', getWaitingRooms());
     });
 
-    socket.on('start_bot_game', ({ roomId, nickname }) => {
+    socket.on('start_bot_game', ({ roomId, nickname, userId }) => {
+        if (userId) socket.userId = userId;
+        if (nickname) socket.nickname = nickname;
+
         removePlayerFromAllRooms(socket);
         
         socket.join(roomId);
@@ -483,7 +501,7 @@ io.on('connection', (socket) => {
         }
 
         if ((room.combo >= 3 || trimmedWord.length >= 4) && room.items[socket.id]?.length < 2) {
-            const itemTypes = ['SKIP', 'CHANGE_CHAR'];
+            const itemTypes = ['SKIP', 'CHANGE_CHAR', 'ATTACK'];
             earnedItem = itemTypes[Math.floor(Math.random() * itemTypes.length)];
             room.items[socket.id].push(earnedItem);
         }
@@ -525,7 +543,7 @@ io.on('connection', (socket) => {
                 message: `⚡ ${currentPlayer.nickname} 님이 [턴 건너뛰기] 스킬을 사용했습니다!` 
             });
             nextTurn(roomId);
-        } else if (itemType === 'CHANGE_CHAR') {
+        } else if (itemType === 'CHANGE_CHAR' || itemType === 'CHANGE') {
             const easyChars = ['가', '나', '다', '라', '마', '바', '사', '아', '자', '차', '카', '타', '파', '하'];
             const newChar = easyChars[Math.floor(Math.random() * easyChars.length)];
             room.lastWord = newChar;
@@ -538,6 +556,14 @@ io.on('connection', (socket) => {
             });
 
             startTurnTimer(roomId);
+        } else if (itemType === 'ATTACK') {
+            room.timeLeft = Math.max(1, room.timeLeft - 5);
+            io.to(roomId).emit('timer_update', { timeLeft: room.timeLeft, bonusTime: 0, currentPlayerId: currentPlayer.id });
+            io.to(roomId).emit('item_used', { 
+                nickname: currentPlayer.nickname, 
+                itemType: 'ATTACK', 
+                message: `⏱ ${currentPlayer.nickname} 님이 [시간 차감] 스킬을 사용했습니다! (-5초)` 
+            });
         }
 
         socket.emit('update_my_items', { items: userItems });

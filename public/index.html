@@ -280,7 +280,6 @@
                 .replace(/'/g, "&#039;");
         }
 
-        // 고유 유저 ID 생성 및 로드
         function getOrCreateUserId() {
             let uid = localStorage.getItem('word_game_user_id');
             if (!uid) {
@@ -427,7 +426,6 @@
             const savedNick = localStorage.getItem(`word_nick_${userId}`);
             if (savedNick) document.getElementById('nickname').value = savedNick;
 
-            // 서버로 점수 동기화 업데이트 전송
             if (socket.connected) {
                 socket.emit('update_score', { userId, nickname: savedNick || '익명', score, wins, losses });
             }
@@ -499,8 +497,8 @@
             }
         });
 
-        // 🏆 서버로부터 실시간 랭킹 데이터 수신
-        socket.on('leaderboard_update', (rankings) => {
+        // 🏆 서버로부터 실시간 랭킹 데이터 수신 (update_rankings & leaderboard_update 바인딩)
+        function renderRankings(rankings) {
             const container = document.getElementById('ranking-list');
             if (!container) return;
 
@@ -525,7 +523,10 @@
                     <span style="font-weight: 700; color: #4338ca;">${user.score} pt</span>
                 </div>`;
             }).join('');
-        });
+        }
+
+        socket.on('update_rankings', renderRankings);
+        socket.on('leaderboard_update', renderRankings);
 
         socket.on('room_list', (rooms) => {
             const container = document.getElementById('public-rooms');
@@ -708,7 +709,11 @@
                 myItems = updatedItems;
                 renderItemSlots();
                 if (earnedItem) {
-                    appendHistory(`🎁 아이템 획득! [${earnedItem === 'CHANGE_CHAR' ? '제시어 변경' : earnedItem}]`, 'system');
+                    let itemName = '아이템';
+                    if (earnedItem === 'SKIP') itemName = '턴 건너뛰기';
+                    else if (earnedItem === 'CHANGE_CHAR' || earnedItem === 'CHANGE') itemName = '제시어 변경';
+                    else if (earnedItem === 'ATTACK') itemName = '시간 차감';
+                    appendHistory(`🎁 아이템 획득! [${itemName}]`, 'system');
                 }
             }
         });
@@ -735,7 +740,7 @@
                 let label = '🎲 아이템';
                 if (item === 'SKIP') label = '⚡ 턴 건너뛰기';
                 else if (item === 'CHANGE_CHAR' || item === 'CHANGE') label = '🎲 제시어 변경';
-                else if (item === 'ATTACK') label = '⏱️️ 시간 차감 (-5초)';
+                else if (item === 'ATTACK') label = '⏱ 시간 차감 (-5초)';
                 return `<button class="item-btn" onclick="useItem('${item}')">${label}</button>`;
             }).join('');
         }
