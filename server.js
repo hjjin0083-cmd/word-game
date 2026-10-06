@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -31,7 +32,7 @@ function broadcastRankings() {
 function addPlayerScore(userKey, nickname, points) {
     if (!userKey) return;
     if (!userScores[userKey]) {
-        userScores[userKey] = { userId: userKey, nickname: nickname, score: 0 };
+        userScores[userKey] = { userId: userKey, nickname: nickname || '익명', score: 0 };
     }
     userScores[userKey].score = Math.max(0, userScores[userKey].score + points);
     if (nickname) userScores[userKey].nickname = nickname; // 닉네임 최신화
@@ -71,6 +72,31 @@ function getWaitingRooms() {
     return roomList;
 }
 
+// HTTPS 요청 래퍼 (Fetch fallback용)
+function fetchText(url) {
+    return new Promise((resolve, reject) => {
+        if (typeof fetch === 'function') {
+            fetch(url)
+                .then(res => {
+                    if (!res.ok) throw new Error('API Response Error');
+                    return res.text();
+                })
+                .then(resolve)
+                .catch(reject);
+            return;
+        }
+
+        https.get(url, (res) => {
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+                return reject(new Error(`HTTP ${res.statusCode}`));
+            }
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
+
 // 국어사전 검색 및 단어 뜻 가져오는 함수
 async function checkWordInDictionary(word) {
     const apiKey = 'A7357991EA6C47925AA3642AB714EECA'; 
@@ -79,18 +105,15 @@ async function checkWordInDictionary(word) {
     }
     const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(word)}&advanced=y&method=exact&pos=1`;
     try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('API Response Error');
-        
-        const xmlText = await response.text();
+        const xmlText = await fetchText(url);
         const matchTotal = xmlText.match(/<total>(\d+)<\/total>/);
-        const exists = matchTotal && parseInt(matchTotal[1]) > 0;
+        const exists = matchTotal && parseInt(matchTotal[1], 10) > 0;
         
         let definition = '단어의 뜻 정보를 불러왔습니다.';
         if (exists) {
             const defMatch = xmlText.match(/<definition>(.*?)<\/definition>/);
             if (defMatch) {
-                definition = defMatch[1].replace(/<[:/a-z]+>/g, '').trim(); 
+                definition = defMatch[1].replace(/<[^>]+>/g, '').trim(); 
             }
         }
         return { exists, definition };
@@ -113,15 +136,12 @@ async function getBotWord(startChar, usedWords) {
     for (const char of searchChars) {
         const url = `https://krdict.korean.go.kr/api/search?key=${apiKey}&q=${encodeURIComponent(char)}&advanced=y&method=start&pos=1&num=20`;
         try {
-            const response = await fetch(url);
-            if (response.ok) {
-                const xmlText = await response.text();
-                const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
-                const words = matches
-                    .map(m => m.replace(/<\/?word>/g, '').trim())
-                    .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
-                candidates = candidates.concat(words);
-            }
+            const xmlText = await fetchText(url);
+            const matches = xmlText.match(/<word>(.*?)<\/word>/g) || [];
+            const words = matches
+                .map(m => m.replace(/<\/?word>/g, '').trim())
+                .filter(w => w.length >= 2 && !w.includes('-') && !w.includes(' ') && !usedWords.has(w));
+            candidates = candidates.concat(words);
         } catch (error) {
             console.error('컴퓨터 단어 검색 에러:', error);
         }
@@ -147,7 +167,7 @@ function applyDueumRule(char) {
         '로': '노', '록': '녹', '론': '논', '롬': '놈', '롯': '놋',
         '뢰': '뇌', '루': '누', '룩': '눅', '룬': '눈', '룸': '눔', '룻': '눗', '룽': '눙',
         '르': '느', '른': '는', '름': '늠', '릉': '능',
-        '랴': '야', '려': '여', '력': '역', '련': '년(연)', '렬': '열', '렴': '염', '렵': '엽', '령': '영',
+        '랴': '야', '려': '여', '력': '역', '련': '년', '렬': '열', '렴': '염', '렵': '엽', '령': '영',
         '례': '예', '료': '요', '룡': '용', '류': '유', '륙': '육', '률': '율', '융': '융', '리': '이', '익': '익',
         '량': '양',
         '녀': '여', '녁': '역', '년': '연', '념': '염', '녕': '영',
@@ -455,7 +475,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const trimmedWord = word.trim();
+        const trimmedWord = (word || '').trim();
         if (trimmedWord.length < 2) return socket.emit('error_msg', '2글자 이상 입력해주세요.');
         
         if (room.lastWord) {
@@ -500,9 +520,10 @@ io.on('connection', (socket) => {
             room.bonusTime[socket.id] = (room.bonusTime[socket.id] || 0) + 3;
         }
 
-        if ((room.combo >= 3 || trimmedWord.length >= 4) && room.items[socket.id]?.length < 2) {
+        if ((room.combo >= 3 || trimmedWord.length >= 4) && (room.items[socket.id]?.length || 0) < 2) {
             const itemTypes = ['SKIP', 'CHANGE_CHAR', 'ATTACK'];
             earnedItem = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+            if (!room.items[socket.id]) room.items[socket.id] = [];
             room.items[socket.id].push(earnedItem);
         }
 

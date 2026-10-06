@@ -272,6 +272,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <script>
         function escapeHtml(str) {
+            if (!str) return '';
             return String(str)
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
@@ -302,6 +303,14 @@
         const sndGameOver = new Audio('https://actions.google.com/sounds/v1/human_voices/crowd_cheer.ogg');
 
         let isMuted = false;
+
+        function playSoundSafe(audioObj) {
+            if (isMuted) return;
+            const p = audioObj.play();
+            if (p !== undefined) {
+                p.catch(err => console.log('Audio play blocked:', err));
+            }
+        }
 
         function toggleMute() {
             isMuted = !isMuted;
@@ -416,12 +425,12 @@
         loadLocalStats();
 
         function loadLocalStats() {
-            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0, 10);
             const wins = localStorage.getItem(`word_wins_${userId}`) || 0;
             const losses = localStorage.getItem(`word_losses_${userId}`) || 0;
             const longest = localStorage.getItem(`word_longest_${userId}`) || '없음';
             
-            document.getElementById('my-stats').innerHTML = `🏆 점수: <strong>${score}</strong> pt | 전적: ${wins}승 ${losses}패<br>🔤 최고 기록 단어: ${longest}`;
+            document.getElementById('my-stats').innerHTML = `🏆 점수: <strong>${score}</strong> pt | 전적: ${wins}승 ${losses}패<br>🔤 최고 기록 단어: ${escapeHtml(longest)}`;
 
             const savedNick = localStorage.getItem(`word_nick_${userId}`);
             if (savedNick) document.getElementById('nickname').value = savedNick;
@@ -432,7 +441,7 @@
         }
 
         function updateScore(points) {
-            let currentScore = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            let currentScore = parseInt(localStorage.getItem(`word_score_${userId}`) || 0, 10);
             currentScore = Math.max(0, currentScore + points);
             localStorage.setItem(`word_score_${userId}`, currentScore);
             loadLocalStats();
@@ -449,11 +458,11 @@
 
         function saveGameResult(isWin) {
             if (isWin) {
-                let wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0) + 1;
+                let wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0, 10) + 1;
                 localStorage.setItem(`word_wins_${userId}`, wins);
                 updateScore(100);
             } else {
-                let losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0) + 1;
+                let losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0, 10) + 1;
                 localStorage.setItem(`word_losses_${userId}`, losses);
                 updateScore(-30);
             }
@@ -475,9 +484,9 @@
             mySocketId = socket.id; 
             
             const savedNick = localStorage.getItem(`word_nick_${userId}`) || '';
-            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
-            const wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0);
-            const losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0);
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0, 10);
+            const wins = parseInt(localStorage.getItem(`word_wins_${userId}`) || 0, 10);
+            const losses = parseInt(localStorage.getItem(`word_losses_${userId}`) || 0, 10);
 
             socket.emit('register_user', { userId, nickname: savedNick, score, wins, losses });
 
@@ -497,7 +506,6 @@
             }
         });
 
-        // 🏆 서버로부터 실시간 랭킹 데이터 수신 (update_rankings & leaderboard_update 바인딩)
         function renderRankings(rankings) {
             const container = document.getElementById('ranking-list');
             if (!container) return;
@@ -532,7 +540,7 @@
             const container = document.getElementById('public-rooms');
             if (!container) return;
 
-            if (rooms.length === 0) {
+            if (!rooms || rooms.length === 0) {
                 container.innerHTML = '<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 10px;">대기 중인 방이 없습니다.<br>아래에서 새 방을 만들어보세요!</div>';
                 return;
             }
@@ -561,11 +569,11 @@
             sessionStorage.setItem('word_active_room', roomId);
             sessionStorage.setItem('word_is_bot', 'false');
 
-            bgm.play().catch(error => console.log('재생 에러:', error));
+            playSoundSafe(bgm);
             unlockAudio();
             currentRoomId = roomId;
 
-            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0, 10);
             socket.emit('join_room', { roomId, nickname, userId, score, isAutoReconnect });
             
             document.getElementById('lobby').classList.add('hidden');
@@ -583,11 +591,11 @@
             sessionStorage.setItem('word_active_room', roomId);
             sessionStorage.setItem('word_is_bot', 'true');
 
-            bgm.play().catch(error => console.log('재생 에러:', error));
+            playSoundSafe(bgm);
             unlockAudio();
             currentRoomId = roomId;
 
-            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0);
+            const score = parseInt(localStorage.getItem(`word_score_${userId}`) || 0, 10);
             socket.emit('start_bot_game', { roomId, nickname, userId, score, isAutoReconnect });
 
             document.getElementById('lobby').classList.add('hidden');
@@ -659,12 +667,12 @@
         });
 
         socket.on('word_accepted', ({ word, nickname, definition, combo, earnedItem, myItems: updatedItems, socketId }) => {
-            appendHistory(`✅ ${escapeHtml(nickname)}: ${word}`);
+            appendHistory(`✅ ${escapeHtml(nickname)}: ${escapeHtml(word)}`);
             document.getElementById('current-word').innerText = word;
             document.getElementById('word-input').value = '';
 
             if (definition) {
-                document.getElementById('word-definition').innerHTML = `<strong>[${word}]</strong> ${escapeHtml(definition)}`;
+                document.getElementById('word-definition').innerHTML = `<strong>[${escapeHtml(word)}]</strong> ${escapeHtml(definition)}`;
             }
 
             const container = document.getElementById('main-container');
@@ -691,12 +699,12 @@
             if (word.includes(currentMissionChar)) {
                 showReaction('🎯');
                 appendHistory(`🎯 미션 성공! '${currentMissionChar}' 포함 단어 입력`, 'system');
-                confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+                if (typeof confetti === 'function') confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
                 if (socketId === socket.id) updateScore(30);
                 refreshMission();
             }
 
-            sndSuccess.play();
+            playSoundSafe(sndSuccess);
             triggerShake();
             showReaction(combo > 2 ? '⚡' : '✨'); 
             add3DWordBlock(word);
@@ -781,7 +789,7 @@
         });
 
         socket.on('error_msg', (msg) => {
-            sndError.play();
+            playSoundSafe(sndError);
             showReaction('❌');
             const status = document.getElementById('status-msg');
             status.style.color = "red";
@@ -795,10 +803,10 @@
         });
 
         socket.on('game_over', ({ winner }) => {
-            sndGameOver.play();
+            playSoundSafe(sndGameOver);
             showReaction('🏆');
             
-            confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
+            if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
             document.getElementById('main-container').classList.remove('fever-mode');
             
             const myNickname = document.getElementById('nickname').value.trim();
@@ -855,7 +863,7 @@
             if (isMyTurn) {
                 status.innerText = "🎯 당신의 턴입니다!";
                 document.getElementById('word-input').focus();
-                sndMyTurn.play();
+                playSoundSafe(sndMyTurn);
             } else {
                 status.innerText = `⏳ ${escapeHtml(turnNickname)} 님의 순서입니다...`;
             }
